@@ -30,28 +30,6 @@ def discrete_gamma(alpha, ncat, median_rates=False):
     _ = _discrete_gamma(weights, rates, alpha, alpha, ncat, <int>median_rates)
     return rates
 
-cdef extern from "lnl_calc.h":
-    void LnlCalc(double *probs, double *partials, double *return_values, int states, int sites);
-
-def prep(l, astype):
-    return np.ascontiguousarray(np.array(l).flatten(), dtype=astype)
-
-cdef _lnl(np.ndarray[np.double_t,ndim=1] probs,
-         np.ndarray[np.double_t,ndim=1] partials,
-         np.ndarray[np.double_t,ndim=1] return_value,
-         int states,
-         int sites):
-    LnlCalc(<double*>probs.data, <double*>partials.data, <double*>return_value.data, states, sites)
-
-
-def likvec(probs, partials):
-    sites, states = partials.shape
-    r = np.empty((sites,states))
-    _lnl(probs.ravel(), 
-         partials.ravel(),
-         r.ravel(), states, sites)
-    return r
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cpdef int _lnlmv(double[:,::1] probs, double[:,::1] partials, double[:,::1] return_value) nogil:
@@ -67,7 +45,7 @@ cpdef int _lnlmv(double[:,::1] probs, double[:,::1] partials, double[:,::1] retu
             return_value[i, j] = entry
     return 0
 
-def likvec_mv(probs, partials):
+def likvec(probs, partials):
     sites, states = partials.shape
     r = np.empty((sites,states))
     _lnlmv(probs, 

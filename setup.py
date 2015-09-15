@@ -9,8 +9,7 @@ import numpy
 
 ext = Extension("utils",
                 sources = ['utils.pyx',
-                           'discrete_gamma.c',
-                           'lnl_calc.c'],
+                           'discrete_gamma.c'],
                 include_dirs = [numpy.get_include()],
                )
 
