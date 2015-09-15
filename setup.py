@@ -12,8 +12,6 @@ ext = Extension("utils",
                            'discrete_gamma.c',
                            'lnl_calc.c'],
                 include_dirs = [numpy.get_include()],
-                extra_compile_args=['-fopenmp'],
-                extra_link_args=['-fopenmp'],
                )
 
 setup(cmdclass={'build_ext':build_ext},

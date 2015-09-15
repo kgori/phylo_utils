@@ -1,7 +1,6 @@
 import numpy as np
 cimport numpy as np
 cimport cython
-from cython.parallel import prange
 
 __all__ = ['discrete_gamma', 'likvec']
 
@@ -60,14 +59,13 @@ cpdef int _lnlmv(double[:,::1] probs, double[:,::1] partials, double[:,::1] retu
     cdef double entry
     sites = partials.shape[0]
     states = partials.shape[1]
-    for i in range(sites):
-        for j in range(states):
+    for i in xrange(sites):
+        for j in xrange(states):
             entry = 0
-            for k in prange(states, nogil=True):
+            for k in xrange(states):
                 entry += probs[j, k] * partials[i, k]
             return_value[i, j] = entry
     return 0
-
 
 def likvec_mv(probs, partials):
     sites, states = partials.shape
