@@ -21,7 +21,8 @@ s = np.array([[ 0.,  0.,  0.,  1.], [ 0.,  1.,  0.,  0.], [ 0.,  1.,  0.,  0.]]*
 # print r.flags
 # print r
 
-
+p2 = p.copy()
+s2 = s.copy()
 
 reps = 10000
 
@@ -35,10 +36,11 @@ print c
 
 start = time.time()
 for _ in range(reps):
-    m=utils.likvec_mv(p, s)
+    m=utils.likvec2(p, p2, s, s2)
 end = time.time()
 print 'Time taken for {} calls of likvec_mv = {}'.format(reps, end-start)
 print m
+
 
 reps/=200
 start = time.time()

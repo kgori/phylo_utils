@@ -8,8 +8,8 @@ from Cython.Distutils import build_ext
 import numpy
 
 ext = Extension("utils",
-                sources = ['utils.pyx',
-                           'discrete_gamma.c'],
+                sources = ['extensions/utils.pyx',
+                           'extensions/discrete_gamma.c'],
                 include_dirs = [numpy.get_include()],
                )
 
@@ -17,9 +17,9 @@ setup(cmdclass={'build_ext':build_ext},
       name="utilities",
       author='Kevin Gori',
       author_email='kgori@ebi.ac.uk',
-      description='Wrapper of utility c functions',
+      description='Phylogenetics calculations in python',
       url='',
       version="0.0.1",
       ext_modules = [ext],
-      install_requires = ['cython'],
+      install_requires = ['cython', 'numpy'],
      )
