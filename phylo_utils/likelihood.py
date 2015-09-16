@@ -31,6 +31,10 @@ class Lnl(object):
         self.probs1 = self.transmat.get_p_matrix(len1)
         self.probs2 = self.transmat.get_p_matrix(len2)
 
+    def set_partials(self, partials):
+        """ Set the partials at this node """
+        self.partials = np.ascontiguousarray(partials)
+
     def compute_partials(self, partials1, partials2):
         """ Update partials at this node """
         self.partials = likcalc.likvec_2desc(self.probs1, self.probs2, partials1, partials2)
@@ -60,9 +64,9 @@ class OptWrapper(object):
     """
     def __init__(self, lnl, partials1, partials2, initial_brlen=1.0):
         self.lik = lnl
-        self.lik.partials = partials1
+        self.lik.set_partials(partials1)
         self.partials1 = self.lik.partials
-        self.partials2 = partials2
+        self.partials2 = np.ascontiguousarray(partials2)
         self.updated = None
         self.update(initial_brlen)
 
@@ -85,10 +89,9 @@ class OptWrapper(object):
         return 'Branch length={}, Variance={}, Likelihood+derivatives = {} {} {}'.format(self.updated, -1/self.d2lnl, self.lnl, self.dlnl, self.d2lnl)
 
 
-def optimise(likelihood, partials_a, partials_b, frequencies, min_brlen=0.00001, max_brlen=10, verbose=True):
+def optimise(likelihood, partials_a, partials_b, min_brlen=0.00001, max_brlen=10, verbose=True):
     """
     Optimise ML distance between two partials. min and max set brackets
-    likelihood = Likelihood or PairLikelihood object. PairLikelihood is slightly faster.
     """
     from scipy.optimize import brenth
     wrapper = OptWrapper(likelihood, partials_a, partials_b, (min_brlen+max_brlen)/2.)
@@ -99,11 +102,6 @@ def optimise(likelihood, partials_a, partials_b, frequencies, min_brlen=0.00001,
     return n, -1/wrapper.get_d2lnl(n)
 
 if __name__ == '__main__':
-    kappa = 1
-    k80 = np.array([[0,kappa,1,1],[kappa,0,1,1],[1,1,0,kappa],[1,1,kappa,0]], dtype=np.float)
-    k80f = np.array([0.25,0.25,0.25,0.25])
-    tm = TransitionMatrix(k80, k80f)
-    lk = Lnl(tm)
 
     dna_charmap = {'-': [1.0, 1.0, 1.0, 1.0],
                    'A': [0.0, 0.0, 1.0, 0.0],
@@ -169,12 +167,21 @@ if __name__ == '__main__':
             [(dna_charmap[char] if alphabet=='dna' else protein_charmap[char]) 
                  for char in seq])
 
+    #####################################
+    # Pairwise distance optimiser demo:
+
+    kappa = 1
+    k80 = np.array([[0,kappa,1,1],[kappa,0,1,1],[1,1,0,kappa],[1,1,kappa,0]], dtype=np.float)
+    k80f = np.array([0.25,0.25,0.25,0.25])
+    tm = TransitionMatrix(k80, k80f)
+    lk = Lnl(tm)
     # Simulated data from K80, kappa=1, distance = 0.8
     sites_a = seq_to_partials('ACCCTCCGCGTTGGGTAGTCCTAGGCCCAATGGCGTTTATGCCTCGATTTTTAGTTCTACCGTCCCTACAGATGGATGCCGTCGCATAGACACTGTCAATTCCATTCGGCAGGCTTCACACTGTTGCATTTTCATTTTGTACACGGTACCAACATAGGAGTGCTGTATTGCTATATTTCCAGTACACGGCGTTGAGTCGGATGGAAACGCCGGCGGAAGACAGCTTGGCGGGTCTTCACGCATCACCGCGGGGTCTGAAAGGTATTATCGCTGCTTAAATCAGACCGGTCAAGCTTCCTGGCGGAAGGCGGCAAGGTCCAGCCACAGCATGCTTATTCCTTGTCACGCCGGGTGGAAATCTAGAGCGTCCGGTGGACACAGAGTGATTTTGTACGGGGGGTTCCATACCAGGACATTAGGGTCGGTTTACGGTCTGAGATGTATGTTGCCTTGCGGTCGACGAGCACTGATTCCCCTGAACTTCGTAAGACACATATAGTTTTAATGAAATCCCCAAAACGAGCATGGTTTCAGTATACGCGACAACTTAGGATACAACATACTGAACCAGTCCGCATTGAGGTGCCAATCAAACGGGACCGGGACTGATAAGTATAAAATAGGTTTCCCTGTCCTCTACCTACGTTATCCTCGCGTCGATTTTGATTCTTACCAAGACTGCTAATCAGGCCCTGTGGCCTGCATGTCACCATGTCAGCGTGTTTGGCTAAATTCACGGGATTGGCCTTACCGACTTACATCAGTATTTCATACATAGTTACTCGAGTTTAACGTTGACAGTTAGTCCCATGATACGGCAAAGCCTGGTTCGGCGGATTTCCGAGTACAGCATCTTCGCCCCCGAGATTGCCGCCAATGGACACCCTCCTGAGATGCAGATATGAGTGTTTTTGACACTCTGAGGCTGAGATCCTCACACTTCCGGAGCTTCCGCGATAGTCACGTGGTTATTAGACTTACGGCAGGAAAAATCATGTTA', alphabet='dna')
     sites_b = seq_to_partials('AAGCTCCGCGTAAGCTAACGACCAGTCAGCTAGGTTTAGTGCCACCAGTATGGCTAGTTCCGGAGGGCAAACCGGATGCTACCGATTGGTCACCCTCAGGGTGATTTCGCAGGGCGCTCACTTATTCCTTTTAAATCCTGCCAACAGACTAAGAAAGTTGTACGGTATTCCTATATCTTCAGTACTGCTCTTGGCCGTGCATGTAGCCGAACGACGAGGACGGTACATGAGTTTCTCACCAATTACAGGCGGTTCCATTAGGCAGTAGCTGCGGTTAGTTCATACTGCTAAAGAATCTTCTTGGAACGTGCCAAGGACCAGTCACACACATGTTGTAGTCCCTCATCGTGGTAGGCGTTCCAGACCGTCCGTGGTACACATACCAAATTTCGTACCGGCTGACTCAAAGCGGGAGTTCGCATGATACCAGGGAACGAGATGTTCAAAACGATCAGGTAGTGCCGCCATCTTTCAGGTTCTTTCGTTTCGTCCTATGATACTTGAGTAGCGGTCAAACGAAGCTCGTAGGTGACAGTTACGAGACATGCTGGGATGCAACATACTTTCGCAGTTAGCTAGTAGGTACCTATCTAGCGAATCGAGCTAGGATACCCTGATTATGCTTGTCTCCGTCCTCTTACTATGATCTCCTCGCGTGGTTTTTGCTGCTTAACCGTTGTGCCGTATAAAACAAGAGGCGGGAGTTTAGCTGTGGGAACTTCGTAGACCTTGTAAGCTGGATAGGCCCGTCCGTCGTAATTAATTACCTAAAAGAGAGTCAAACAAGCTTAAGTCGCCGAGTTAGTCGGATAAGAAGCCATTCTCTGGTCCGCCAACCTTCCCATGCCAGTACGGTTGCCGAGGTCCATTCGGTGACTGTGGGATAACCGTTGCCGGAGCTATGAGATCCATTACAACTCTGCGCCTAGGATGTTAACTCTACCGAAGTTTGCGACCCCGGAACCTGTAAATTGTCCTTAGGGTCGTAACATTTTCAAGC', alphabet='dna')
 
-    optimise(lk, sites_a, sites_b, k80f)
+    optimise(lk, sites_a, sites_b)
 
+    ############################################################################
     # Example from Section 4.2 of Ziheng's book - his value for node 6 is wrong!
     np.set_printoptions(precision=6)
     kappa = 2
