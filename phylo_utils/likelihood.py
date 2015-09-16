@@ -26,6 +26,7 @@ class Lnl(object):
         self.transmat = transmat
         self.partials = None
         self.sitewise = None
+        self.scale_buffer = None
 
     def update_transition_probabilities(self, len1, len2):
         self.probs1 = self.transmat.get_p_matrix(len1)
@@ -49,10 +50,13 @@ class Lnl(object):
 
     def compute_likelihood(self, partials, brlen, derivatives=False):
         self.compute_edge_sitewise_likelihood(partials, brlen, derivatives)
-        lnl = np.log(self.sitewise[:, 0]).sum()
+        f = self.sitewise[:, 0]
+        lnl = np.log(f).sum()
         if derivatives:
-            dlnl = self.sitewise[:, 1].sum()
-            d2lnl = self.sitewise[:, 2].sum()
+            fp = self.sitewise[:, 1]
+            f2p = self.sitewise[:, 2]
+            dlnl = (fp/f).sum()
+            d2lnl = (((f*f2p)-(fp*fp))/(f*f)).sum()
             return lnl, dlnl, d2lnl
         else:
             return lnl
@@ -235,3 +239,7 @@ if __name__ == '__main__':
             print node.label, node.partials
         else:
             print node.label, node.lnl.partials
+
+    n6, n8 = t.seed_node.child_nodes()
+    print n6.lnl.compute_likelihood(n8.lnl.partials, 0.2, True)
+    print n6.lnl.sitewise

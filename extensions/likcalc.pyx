@@ -6,12 +6,14 @@ from libc.math cimport exp, log
 __all__ = ['discrete_gamma', 'likvec', 'likvec2']
 
 cdef extern from "discrete_gamma.h":
-    int DiscreteGamma(double* freqK, double* rK, double alpha, double beta, int K, int UseMedian)
+    int DiscreteGamma(double* freqK, double* rK, double alpha, double beta, int K, int UseMedian) nogil
 
-def _discrete_gamma(np.ndarray[np.double_t,ndim=1] freqK, np.ndarray[np.double_t,ndim=1] rK, alpha, beta, K, UseMedian):
-    return DiscreteGamma(<double*>freqK.data, <double*>rK.data, alpha, beta, K, UseMedian)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef int _discrete_gamma(double[:] freqK, double[:] rK, double alpha, double beta, int K, int UseMedian) nogil:
+    return DiscreteGamma(&freqK[0], &rK[0], alpha, beta, K, UseMedian)
 
-def discrete_gamma(alpha, ncat, median_rates=False):
+def discrete_gamma(double alpha, int ncat, int median_rates=False):
     """
     Generates rates for discrete gamma distribution,
     for `ncat` categories. By default calculates mean rates,
@@ -25,7 +27,6 @@ def discrete_gamma(alpha, ncat, median_rates=False):
     rates = discrete_gamma(0.5, 5)  # Mean rates (see Fig 4.9, p.118, Ziheng's book on lizards)
     >>> array([ 0.02121238,  0.15548577,  0.46708288,  1.10711735,  3.24910162])
     """
-
     weights = np.zeros(ncat, dtype=np.double)
     rates = np.zeros(ncat, dtype=np.double)
     _ = _discrete_gamma(weights, rates, alpha, alpha, ncat, <int>median_rates)
@@ -68,58 +69,6 @@ cpdef int _partials(double[:,::1] probs1, double[:,::1] probs2, double[:,::1] pa
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef int _lnl(double[:,::1] probs, double[::1] freqs, double[:,::1] partials1,
-               double[:,::1] partials2, double[::1] return_value) nogil:
-    """ Cython implementation of Eq (3), Yang (2000) """
-    cdef size_t i, j, k
-    cdef double f
-    sites = partials1.shape[0]
-    states = partials1.shape[1]
-    for i in xrange(sites):
-        f = 0
-        for j in xrange(states):
-            for k in xrange(states):
-                f += freqs[j] * probs[j, k] * partials1[i, j] * partials2[i, k]
-        return_value[i] = f
-    return 0
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-cpdef int _dlnl(double[:,::1] dprobs, double[::1] freqs, double[:,::1] partials1,
-                double[:,::1] partials2, double[::1] return_value) nogil:
-    """ Cython implementation of first equation in Eq (6), Yang (2000) """
-    cdef size_t i, j, k
-    cdef double f
-    sites = partials1.shape[0]
-    states = partials1.shape[1]
-    for i in xrange(sites):
-        f = 0
-        for j in xrange(states):
-            for k in xrange(states):
-                f += freqs[j] * dprobs[j, k] * partials1[i, j] * partials2[i, k]
-        return_value[i] = f
-    return 0
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-cpdef int _d2lnl(double[:,::1] d2probs, double[::1] freqs, double[:,::1] partials1,
-                 double[:,::1] partials2, double[::1] return_value) nogil:
-    """ Cython implementation of second equation in Eq (6), Yang (2000) """
-    cdef size_t i, j, k
-    cdef double f
-    sites = partials1.shape[0]
-    states = partials1.shape[1]
-    for i in xrange(sites):
-        f = 0
-        for j in xrange(states):
-            for k in xrange(states):
-                f += freqs[j] * d2probs[j, k] * partials1[i, j] * partials2[i, k]
-        return_value[i] = f
-    return 0
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
 cpdef int _single_site_lik_derivs(double[:,::1] evecs, double[::1] evals, double[::1,:] ivecs, 
                                   double[::1] pi, double t, 
                                   double[::1] partials_a, double[::1] partials_b,
@@ -157,10 +106,9 @@ cpdef int _single_site_lik_derivs(double[:,::1] evecs, double[::1] evals, double
         fp += pi[a] * apbuf * partials_a[a]
         f2p += pi[a] * a2pbuf * partials_a[a]
     out[0] = f
-    out[1] = fp/f
-    out[2] = ((f*f2p)-(fp*fp))/(f*f)
+    out[1] = fp
+    out[2] = f2p
     return 0
-
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -186,7 +134,6 @@ cpdef int _single_site_lik(double[:,::1] evecs, double[::1] evals, double[::1,:]
     out[0] = f
     return 0
 
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cpdef int _sitewise_lik_derivs(double[:,::1] evecs, double[::1] evals, double[::1,:] ivecs, 
@@ -205,7 +152,6 @@ cpdef int _sitewise_lik_derivs(double[:,::1] evecs, double[::1] evals, double[::
         _single_site_lik_derivs(evecs, evals, ivecs, pi, t, partials_a[site], partials_b[site], out[site])
     return 0
 
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cpdef int _sitewise_lik(double[:,::1] evecs, double[::1] evals, double[::1,:] ivecs, 
@@ -221,18 +167,6 @@ cpdef int _sitewise_lik(double[:,::1] evecs, double[::1] evals, double[::1,:] iv
     for site in xrange(sites):
         _single_site_lik(evecs, evals, ivecs, pi, t, partials_a[site], partials_b[site], out[site])
     return 0
-
-
-def root_likelihood(probs, dprobs, d2probs, freqs, partials1, partials2):
-    if not partials1.shape == partials2.shape: raise ValueError('Mismatched arrays')
-    sites, states = partials1.shape
-    f = np.empty(sites)
-    f_prime = np.empty(sites)
-    f_2prime = np.empty(sites)
-    _lnl(probs, freqs, partials1, partials2, f)
-    _dlnl(dprobs, freqs, partials1, partials2, f_prime)
-    _d2lnl(dprobs, freqs, partials1, partials2, f_2prime)
-    return f, f_prime, f_2prime
 
 def likvec_1desc(probs, partials):
     """

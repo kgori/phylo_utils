@@ -1,7 +1,5 @@
 test
-utils.c
-utils.html
-utils.so
+extensions/likcalc.c
 
 # Mac cruft
 *.DS_Store*
