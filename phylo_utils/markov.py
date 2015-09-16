@@ -1,3 +1,5 @@
+import numpy as np
+
 def get_q_matrix(rates, freqs):
     # TODO: cythonize
     q = rates.dot(np.diag(freqs))
@@ -24,7 +26,7 @@ def get_eigen(q_matrix, freqs=None):
         evecs = evecs[:, sort_ix]
         ivecs = np.linalg.inv(evecs)
     return (np.ascontiguousarray(evecs),
-            np.ascontiguousarray(v),
+            np.ascontiguousarray(evals),
             np.asfortranarray(ivecs))
 
 
@@ -35,6 +37,7 @@ class Eigen(object):
         self.evals = evals
         self.ivecs = ivecs
 
+    @property
     def values(self):
         return self.evecs, self.evals, self.ivecs
 

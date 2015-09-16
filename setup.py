@@ -1,5 +1,5 @@
 try:
-    from setuptools import setup, Extension
+    from setuptools import setup, find_packages, Extension
 except ImportError:
     from distutils.core import setup, Extension
 
@@ -7,14 +7,16 @@ from Cython.Distutils import build_ext
 
 import numpy
 
-ext = Extension("utils",
-                sources = ['extensions/utils.pyx',
+ext = Extension("likcalc",
+                sources = ['extensions/likcalc.pyx',
                            'extensions/discrete_gamma.c'],
                 include_dirs = [numpy.get_include()],
                )
 
+print find_packages()
+
 setup(cmdclass={'build_ext':build_ext},
-      name="utilities",
+      name="phylo_utils",
       author='Kevin Gori',
       author_email='kgori@ebi.ac.uk',
       description='Phylogenetics calculations in python',
@@ -22,4 +24,5 @@ setup(cmdclass={'build_ext':build_ext},
       version="0.0.1",
       ext_modules = [ext],
       install_requires = ['cython', 'numpy'],
+      packages=find_packages(),
      )

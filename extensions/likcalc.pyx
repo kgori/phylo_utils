@@ -120,10 +120,10 @@ cpdef int _d2lnl(double[:,::1] d2probs, double[::1] freqs, double[:,::1] partial
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef int _single_site_loglik_derivs(double[:,::1] evecs, double[::1] evals, double[::1,:] ivecs, 
-                                     double[::1] pi, double t, 
-                                     double[::1] partials_a, double[::1] partials_b,
-                                     double[::1] out) nogil:
+cpdef int _single_site_lik_derivs(double[:,::1] evecs, double[::1] evals, double[::1,:] ivecs, 
+                                  double[::1] pi, double t, 
+                                  double[::1] partials_a, double[::1] partials_b,
+                                  double[::1] out) nogil:
     """
     Compute sitewise values of log-likelihood and derivatives 
     - equations (10) & (11) from Yang (2000)
@@ -150,23 +150,23 @@ cpdef int _single_site_loglik_derivs(double[:,::1] evecs, double[::1] evals, dou
                 bbuf += tmp1
                 bpbuf += tmp2
                 b2pbuf += tmp2 * evals[k]
-            abuf += bbuf * partials_b[site, b]
-            apbuf += bpbuf * partials_b[site, b]
-            a2pbuf += b2pbuf * partials_b[site, b]
-        f += pi[a] * abuf * partials_a[site, a]
-        fp += pi[a] * apbuf * partials_a[site, a]
-        f2p += pi[a] * a2pbuf * partials_a[site, a]
+            abuf += bbuf * partials_b[b]
+            apbuf += bpbuf * partials_b[b]
+            a2pbuf += b2pbuf * partials_b[b]
+        f += pi[a] * abuf * partials_a[a]
+        fp += pi[a] * apbuf * partials_a[a]
+        f2p += pi[a] * a2pbuf * partials_a[a]
     out[0] = f
-    out[1] = fp
-    out[2] = f2p
+    out[1] = fp/f
+    out[2] = ((f*f2p)-(fp*fp))/(f*f)
     return 0
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef int _single_site_loglik(double[:,::1] evecs, double[::1] evals, double[::1,:] ivecs, 
-                              double[::1] pi, double t, double[::1] partials_a,
-                              double[::1] partials_b, double[::1] out) nogil:
+cpdef int _single_site_lik(double[:,::1] evecs, double[::1] evals, double[::1,:] ivecs, 
+                           double[::1] pi, double t, double[::1] partials_a,
+                           double[::1] partials_b, double[::1] out) nogil:
     """
     Compute sitewise values of log-likelihood
     """
@@ -181,36 +181,36 @@ cpdef int _single_site_loglik(double[:,::1] evecs, double[::1] evals, double[::1
             s = 0
             for k in xrange(states):
                 s += evecs[a, k] * ivecs[k, b] * exp(evals[k]*t)
-            sb += s * partials_b[site, b]
-        f += pi[a] * sb * partials_a[site, a]
+            sb += s * partials_b[b]
+        f += pi[a] * sb * partials_a[a]
     out[0] = f
     return 0
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef int _sitewise_loglik_derivs(double[:,::1] evecs, double[::1] evals, double[::1,:] ivecs, 
-                                  double[::1] pi, double t, 
-                                  double[:,::1] partials_a, double[:,::1] partials_b,
-                                  double[:,::1] out) nogil:
+cpdef int _sitewise_lik_derivs(double[:,::1] evecs, double[::1] evals, double[::1,:] ivecs, 
+                               double[::1] pi, double t, 
+                               double[:,::1] partials_a, double[:,::1] partials_b,
+                               double[:,::1] out) nogil:
     """
     Compute sitewise values of log-likelihood and derivatives 
     - equations (10) & (11) from Yang (2000)
     """
-    cdef site  # loop indices
+    cdef size_t site  # loop indices
     sites = partials_a.shape[0]
     states = partials_a.shape[1]
 
     for site in xrange(sites):
-        _single_site_loglik_derivs(evecs, evals, ivecs, pi, t, partials_a[site], partials_b[site], out[site])
+        _single_site_lik_derivs(evecs, evals, ivecs, pi, t, partials_a[site], partials_b[site], out[site])
     return 0
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef int _sitewise_loglik(double[:,::1] evecs, double[::1] evals, double[::1,:] ivecs, 
-                                  double[::1] pi, double t, double[:,::1] partials_a,
-                                  double[:,::1] partials_b, double[::1] out) nogil:
+cpdef int _sitewise_lik(double[:,::1] evecs, double[::1] evals, double[::1,:] ivecs, 
+                        double[::1] pi, double t, double[:,::1] partials_a,
+                        double[:,::1] partials_b, double[:,::1] out) nogil:
     """
     Compute sitewise values of log-likelihood - equation (10) from Yang (2000)
     """
@@ -219,9 +219,8 @@ cpdef int _sitewise_loglik(double[:,::1] evecs, double[::1] evals, double[::1,:]
     states = partials_a.shape[1]
 
     for site in xrange(sites):
-        _single_site_loglik(evecs, evals, ivecs, pi, t, partials_a[site], partials_b[site], out[site])
+        _single_site_lik(evecs, evals, ivecs, pi, t, partials_a[site], partials_b[site], out[site])
     return 0
-
 
 
 def root_likelihood(probs, dprobs, d2probs, freqs, partials1, partials2):
@@ -233,7 +232,7 @@ def root_likelihood(probs, dprobs, d2probs, freqs, partials1, partials2):
     _lnl(probs, freqs, partials1, partials2, f)
     _dlnl(dprobs, freqs, partials1, partials2, f_prime)
     _d2lnl(dprobs, freqs, partials1, partials2, f_2prime)
-    return r
+    return f, f_prime, f_2prime
 
 def likvec_1desc(probs, partials):
     """
@@ -263,14 +262,14 @@ def likvec_2desc(probs1, probs2, partials1, partials2):
     _partials(probs1, probs2, partials1, partials2, r)
     return r
 
-def sitewise_loglik_derivs(u, v, uinv, pi, t, partials_a, partials_b):
+def sitewise_lik_derivs(evecs, evals, ivecs, freqs, t, partials_a, partials_b):
     sites = partials_a.shape[0]
     r = np.empty((sites, 3))
-    _sitewise_lik_derivs(u, v, uinv, pi, t, partials_a, partials_b, r)
+    _sitewise_lik_derivs(evecs, evals, ivecs, freqs, t, partials_a, partials_b, r)
     return r
 
-def sitewise_loglik(u, v, uinv, pi, t, partials_a, partials_b):
+def sitewise_lik(evecs, evals, ivecs, freqs, t, partials_a, partials_b):
     sites = partials_a.shape[0]
-    r = np.empty(sites)
-    _sitewise_loglik(u, v, uinv, pi, t, partials_a, partials_b, r)
+    r = np.empty((sites, 1))
+    _sitewise_lik(evecs, evals, ivecs, freqs, t, partials_a, partials_b, r)
     return r
