@@ -61,7 +61,5 @@ protein_charmap = {'-': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 
 def seq_to_partials(seq, alphabet='dna'):
     return np.array(
         [(dna_charmap[char] if alphabet=='dna' else protein_charmap[char]) 
-         for char in seq]
-    )
+         for char in seq])
 
-del np

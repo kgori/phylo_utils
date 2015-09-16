@@ -1,6 +1,7 @@
 import numpy as np
 import likcalc
 from markov import TransitionMatrix
+import dendropy as dpy
 
 def setup_logger():
     import logging
@@ -17,10 +18,20 @@ def setup_logger():
 logger = setup_logger()
 
 
-class Lnl(object):
+class Leaf(object):
+    """ Object to store partials at a leaf """
+    def __init__(self, partials):
+        self.set_partials(partials)
+
+    def set_partials(self, partials):
+        """ Set the partials at this node """
+        self.partials = np.ascontiguousarray(partials, dtype=np.double)
+
+
+class LnlModel(object):
     """
-    Calculate and store the transition probabilities.
-    Doesn't do gamma rates yet.
+    Attaches to a node. Calculates and stores partials (conditional likelihood vectors),
+    and transition probabilities.
     """
     def __init__(self, transmat):
         self.transmat = transmat
@@ -36,22 +47,31 @@ class Lnl(object):
         """ Set the partials at this node """
         self.partials = np.ascontiguousarray(partials)
 
-    def compute_partials(self, partials1, partials2):
+    def compute_partials(self, lnlmodel1, lnlmodel2, scale=False):
         """ Update partials at this node """
-        self.partials = likcalc.likvec_2desc(self.probs1, self.probs2, partials1, partials2)
+        if scale:
+            self.partials, self.scale_buffer = likcalc.likvec_2desc_scaled(self.probs1, self.probs2, lnlmodel1.partials, lnlmodel2.partials)
+        else:
+            self.partials = likcalc.likvec_2desc(self.probs1, self.probs2, lnlmodel1.partials, lnlmodel2.partials)
 
-    def compute_edge_sitewise_likelihood(self, partials, brlen, derivatives=False):
-        """ Calculate the likelihood with this node at root """
+    def compute_edge_sitewise_likelihood(self, lnlmodel, brlen, derivatives=False):
+        """ Calculate the likelihood with this node at root - 
+        returns array of [f, f', f''] values, where fs are unscaled unlogged likelihoods, and
+        f' and f'' are unconverted partial derivatives.
+        Logging, scaling and conversion are done in compute_likelihood """
         evecs, evals, ivecs = self.transmat.eigen.values
         if derivatives:
-            self.sitewise = likcalc.sitewise_lik_derivs(evecs, evals, ivecs, self.transmat.freqs, brlen, self.partials, partials)
+            self.sitewise = likcalc.sitewise_lik_derivs(evecs, evals, ivecs, self.transmat.freqs, brlen, self.partials, lnlmodel.partials)
         else:
-            self.sitewise = likcalc.sitewise_lik(evecs, evals, ivecs, self.transmat.freqs, brlen, self.partials, partials)
+            self.sitewise = likcalc.sitewise_lik(evecs, evals, ivecs, self.transmat.freqs, brlen, self.partials, lnlmodel.partials)
 
-    def compute_likelihood(self, partials, brlen, derivatives=False):
-        self.compute_edge_sitewise_likelihood(partials, brlen, derivatives)
+    def compute_likelihood(self, lnlmodel, brlen, derivatives=False, accumulated_scale_buffer=None):
+        self.compute_edge_sitewise_likelihood(lnlmodel, brlen, derivatives)
         f = self.sitewise[:, 0]
-        lnl = np.log(f).sum()
+        if accumulated_scale_buffer is not None:
+            lnl = (np.log(f) + accumulated_scale_buffer).sum()
+        else:
+            lnl = np.log(f).sum()
         if derivatives:
             fp = self.sitewise[:, 1]
             f2p = self.sitewise[:, 2]
@@ -62,15 +82,110 @@ class Lnl(object):
             return lnl
 
 
+class RunOnTree(object):
+    def __init__(self, tree, transition_matrix, scale_freq=20):
+        self.tree = dpy.Tree.get_from_string(tree, 'newick')
+        self.tree.resolve_polytomies()
+
+        # Initialise models
+        self.num_leaves = len(self.tree.leaf_nodes())
+        self.num_inner = len(self.tree.internal_nodes())
+        self.leaf_models = [Leaf() for _ in xrange(self.num_leaves)]
+        self.inner_models = [LnlModel(transition_matrix) for _ in xrange(self.num_inner)]
+
+        self.tm = transition_matrix
+        self.internal_node_counter = 0
+        self.accumulated_scale_buffer = None
+        self.scale_freq = scale_freq
+
+    def attach_models_to_tree(self, partials_dict):
+        pass
+        
+    def init_leaves(self, partials_dict):
+        self.internal_node_counter = 0
+        example_leaf = None
+        for i, leaf in enumerate(self.tree.leaf_nodes()):
+            taxon = leaf.taxon.label
+            leaf.model = Leaf(partials_dict[taxon])
+        self.nsites = leaf.model.partials.shape[0]
+
+    def run(self, derivatives=False):
+        self.internal_node_counter = 0
+        self.accumulated_scale_buffer = np.zeros(self.nsites)
+        for node in self.tree.postorder_internal_node_iter():
+            self.internal_node_counter += 1
+            children = node.child_nodes()
+            node.model = LnlModel(self.tm)
+            l1, l2 = [ch.edge.length for ch in children]
+            node.model.update_transition_probabilities(l1,l2)
+            model1, model2 = [ch.model for ch in node.child_nodes()]
+            if self.internal_node_counter % self.scale_freq == 0 and not node == self.tree.seed_node:
+                node.model.compute_partials(model1, model2, True)
+                self.accumulated_scale_buffer += node.model.scale_buffer
+            else:
+                node.model.compute_partials(model1, model2, False)
+        ch1, ch2 = self.tree.seed_node.child_nodes()[:2]
+        return ch1.model.compute_likelihood(ch2.model, ch1.edge.length + ch2.edge_length, derivatives, self.accumulated_scale_buffer)
+
+    def get_sitewise_likelihoods(self):
+        ch = self.tree.seed_node.child_nodes()[0]
+        return np.log(ch.model.sitewise[:, 0]) + self.accumulated_scale_buffer
+        
+
+class Mixture(object):
+    def __init__(self):
+        pass
+
+    def mix_likelihoods(self, sw_lnls):
+        m = sw_lnls.max(1)[:,np.newaxis]
+        v = np.exp(sw_lnls - m)
+        c = (self.weights * v)
+        return np.log(c.sum(1))[:, np.newaxis] + m
+
+
+class GammaMixture(Mixture):
+    def __init__(self, alpha, ncat):
+        self.ncat = ncat
+        self.rates = likcalc.discrete_gamma(alpha, ncat)
+        self.weights = np.array([1.0/ncat] * ncat)
+
+    def add_tree(self, tree, tm, scale_freq=20):
+        self.runners = []
+        for cat in range(self.ncat):
+            t = dpy.Tree.get_from_string(tree, 'newick')
+            t.resolve_polytomies()
+            t.scale_edges(self.rates[cat])
+            self.runners.append(RunOnTree(t.as_newick_string()+';', tm))
+
+    def init_leaves(self, partials_dict):
+        for runner in self.runners:
+            runner.init_leaves(partials_dict)
+
+    def run(self):
+        for runner in self.runners:
+            runner.run()
+
+    def get_sitewise_likelihoods(self):
+        swlnls = np.empty((self.runners[0].nsites, self.ncat))
+        for cat in xrange(self.ncat):
+            swlnls[:,cat] = self.runners[cat].get_sitewise_likelihoods()
+        return swlnls
+
+    def get_likelihood(self):
+        self.run()
+        sw_lnls_per_class = self.get_sitewise_likelihoods()
+        sw_lnls = self.mix_likelihoods(sw_lnls_per_class)
+        return sw_lnls.sum()  
+
+
 class OptWrapper(object):
     """
     Wrapper for use with scipy optimiser (e.g. brenth/brentq)
     """
-    def __init__(self, lnl, partials1, partials2, initial_brlen=1.0):
-        self.lik = lnl
-        self.lik.set_partials(partials1)
-        self.partials1 = self.lik.partials
-        self.partials2 = np.ascontiguousarray(partials2)
+    def __init__(self, tm, partials1, partials2, initial_brlen=1.0):
+        self.root = LnlModel(tm)
+        self.leaf = Leaf(partials2)
+        self.root.set_partials(partials1)
         self.updated = None
         self.update(initial_brlen)
 
@@ -79,7 +194,7 @@ class OptWrapper(object):
             return
         else:
             self.updated = brlen
-            self.lnl, self.dlnl, self.d2lnl = self.lik.compute_likelihood(self.partials2, brlen, derivatives=True)
+            self.lnl, self.dlnl, self.d2lnl = self.root.compute_likelihood(self.leaf, brlen, derivatives=True)
 
     def get_dlnl(self, brlen):
         self.update(brlen)
@@ -106,70 +221,7 @@ def optimise(likelihood, partials_a, partials_b, min_brlen=0.00001, max_brlen=10
     return n, -1/wrapper.get_d2lnl(n)
 
 if __name__ == '__main__':
-
-    dna_charmap = {'-': [1.0, 1.0, 1.0, 1.0],
-                   'A': [0.0, 0.0, 1.0, 0.0],
-                   'C': [0.0, 1.0, 0.0, 0.0],
-                   'G': [0.0, 0.0, 0.0, 1.0],
-                   'N': [1.0, 1.0, 1.0, 1.0],
-                   'T': [1.0, 0.0, 0.0, 0.0],
-                   'a': [0.0, 0.0, 1.0, 0.0],
-                   'c': [0.0, 1.0, 0.0, 0.0],
-                   'g': [0.0, 0.0, 0.0, 1.0],
-                   'n': [1.0, 1.0, 1.0, 1.0],
-                   't': [1.0, 0.0, 0.0, 0.0]}
-
-                        #  A    R    N    D    C    Q    E    G    H    I    L    K    M    F    P    S    T    W    Y    V
-    protein_charmap = {'-': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-                       '?': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-                       'A': [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'R': [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'N': [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'D': [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'C': [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'Q': [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'E': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'G': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'H': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'I': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'L': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'K': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'M': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'F': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'P': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'S': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
-                       'T': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
-                       'W': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-                       'Y': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
-                       'V': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
-                       'X': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-                       'a': [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'r': [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'n': [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'd': [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'c': [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'q': [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'e': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'g': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'h': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'i': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'l': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'k': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'm': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'f': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       'p': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                       's': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
-                       't': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
-                       'w': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-                       'y': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
-                       'v': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
-                       'x': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}
-
-
-    def seq_to_partials(seq, alphabet='dna'):
-        return np.ascontiguousarray(
-            [(dna_charmap[char] if alphabet=='dna' else protein_charmap[char]) 
-                 for char in seq])
+    from seq_to_partials import dna_charmap, protein_charmap, seq_to_partials
 
     #####################################
     # Pairwise distance optimiser demo:
@@ -178,12 +230,11 @@ if __name__ == '__main__':
     k80 = np.array([[0,kappa,1,1],[kappa,0,1,1],[1,1,0,kappa],[1,1,kappa,0]], dtype=np.float)
     k80f = np.array([0.25,0.25,0.25,0.25])
     tm = TransitionMatrix(k80, k80f)
-    lk = Lnl(tm)
     # Simulated data from K80, kappa=1, distance = 0.8
     sites_a = seq_to_partials('ACCCTCCGCGTTGGGTAGTCCTAGGCCCAATGGCGTTTATGCCTCGATTTTTAGTTCTACCGTCCCTACAGATGGATGCCGTCGCATAGACACTGTCAATTCCATTCGGCAGGCTTCACACTGTTGCATTTTCATTTTGTACACGGTACCAACATAGGAGTGCTGTATTGCTATATTTCCAGTACACGGCGTTGAGTCGGATGGAAACGCCGGCGGAAGACAGCTTGGCGGGTCTTCACGCATCACCGCGGGGTCTGAAAGGTATTATCGCTGCTTAAATCAGACCGGTCAAGCTTCCTGGCGGAAGGCGGCAAGGTCCAGCCACAGCATGCTTATTCCTTGTCACGCCGGGTGGAAATCTAGAGCGTCCGGTGGACACAGAGTGATTTTGTACGGGGGGTTCCATACCAGGACATTAGGGTCGGTTTACGGTCTGAGATGTATGTTGCCTTGCGGTCGACGAGCACTGATTCCCCTGAACTTCGTAAGACACATATAGTTTTAATGAAATCCCCAAAACGAGCATGGTTTCAGTATACGCGACAACTTAGGATACAACATACTGAACCAGTCCGCATTGAGGTGCCAATCAAACGGGACCGGGACTGATAAGTATAAAATAGGTTTCCCTGTCCTCTACCTACGTTATCCTCGCGTCGATTTTGATTCTTACCAAGACTGCTAATCAGGCCCTGTGGCCTGCATGTCACCATGTCAGCGTGTTTGGCTAAATTCACGGGATTGGCCTTACCGACTTACATCAGTATTTCATACATAGTTACTCGAGTTTAACGTTGACAGTTAGTCCCATGATACGGCAAAGCCTGGTTCGGCGGATTTCCGAGTACAGCATCTTCGCCCCCGAGATTGCCGCCAATGGACACCCTCCTGAGATGCAGATATGAGTGTTTTTGACACTCTGAGGCTGAGATCCTCACACTTCCGGAGCTTCCGCGATAGTCACGTGGTTATTAGACTTACGGCAGGAAAAATCATGTTA', alphabet='dna')
     sites_b = seq_to_partials('AAGCTCCGCGTAAGCTAACGACCAGTCAGCTAGGTTTAGTGCCACCAGTATGGCTAGTTCCGGAGGGCAAACCGGATGCTACCGATTGGTCACCCTCAGGGTGATTTCGCAGGGCGCTCACTTATTCCTTTTAAATCCTGCCAACAGACTAAGAAAGTTGTACGGTATTCCTATATCTTCAGTACTGCTCTTGGCCGTGCATGTAGCCGAACGACGAGGACGGTACATGAGTTTCTCACCAATTACAGGCGGTTCCATTAGGCAGTAGCTGCGGTTAGTTCATACTGCTAAAGAATCTTCTTGGAACGTGCCAAGGACCAGTCACACACATGTTGTAGTCCCTCATCGTGGTAGGCGTTCCAGACCGTCCGTGGTACACATACCAAATTTCGTACCGGCTGACTCAAAGCGGGAGTTCGCATGATACCAGGGAACGAGATGTTCAAAACGATCAGGTAGTGCCGCCATCTTTCAGGTTCTTTCGTTTCGTCCTATGATACTTGAGTAGCGGTCAAACGAAGCTCGTAGGTGACAGTTACGAGACATGCTGGGATGCAACATACTTTCGCAGTTAGCTAGTAGGTACCTATCTAGCGAATCGAGCTAGGATACCCTGATTATGCTTGTCTCCGTCCTCTTACTATGATCTCCTCGCGTGGTTTTTGCTGCTTAACCGTTGTGCCGTATAAAACAAGAGGCGGGAGTTTAGCTGTGGGAACTTCGTAGACCTTGTAAGCTGGATAGGCCCGTCCGTCGTAATTAATTACCTAAAAGAGAGTCAAACAAGCTTAAGTCGCCGAGTTAGTCGGATAAGAAGCCATTCTCTGGTCCGCCAACCTTCCCATGCCAGTACGGTTGCCGAGGTCCATTCGGTGACTGTGGGATAACCGTTGCCGGAGCTATGAGATCCATTACAACTCTGCGCCTAGGATGTTAACTCTACCGAAGTTTGCGACCCCGGAACCTGTAAATTGTCCTTAGGGTCGTAACATTTTCAAGC', alphabet='dna')
 
-    optimise(lk, sites_a, sites_b)
+    optimise(tm, sites_a, sites_b)
 
     ############################################################################
     # Example from Section 4.2 of Ziheng's book - his value for node 6 is wrong!
@@ -199,47 +250,41 @@ if __name__ == '__main__':
     partials_4 = np.ascontiguousarray(np.array([[0, 1, 0, 0]], dtype=np.float))
     partials_5 = np.ascontiguousarray(np.array([[0, 1, 0, 0]], dtype=np.float))
 
-    import dendropy as dpy
-    t = dpy.Tree.get_from_string('(((1:0.2,2:0.2):0.1,3:0.2):0.1,(4:0.2,5:0.2):0.1);', 'newick')
-    for node in t.postorder_node_iter():
-        if node.is_leaf():
-            if node.taxon.label == '1':
-                node.partials = partials_1
-                node.label = '1'
-            elif node.taxon.label == '2':
-                node.partials = partials_2
-                node.label = '2'
-            elif node.taxon.label == '3':
-                node.partials = partials_3
-                node.label = '3'
-            elif node.taxon.label == '4':
-                node.partials = partials_4
-                node.label = '4'
-            elif node.taxon.label == '5':
-                node.partials = partials_5
-                node.label = '5'
-        else:
-            children = node.child_nodes()
-            if set([ch.label for ch in children]) == set(['1','2']):
-                node.label = '7'
-            elif set([ch.label for ch in children]) == set(['4','5']):
-                node.label = '8'
-            elif set([ch.label for ch in children]) == set(['3','7']):
-                node.label = '6'
-            else:
-                node.label = '0'
-            node.lnl = Lnl(tm)
-            l1, l2 = [ch.edge.length for ch in children]
-            node.lnl.update_transition_probabilities(l1,l2)
-            p1, p2 = [ch.partials if ch.is_leaf() else ch.lnl.partials for ch in node.child_nodes()]
-            node.lnl.compute_partials(p1, p2)
+    partials_dict = {'1': partials_1,
+                     '2': partials_2,
+                     '3': partials_3,
+                     '4': partials_4,
+                     '5': partials_5}
+    
 
-    for node in t.postorder_node_iter():
-        if node.is_leaf():
-            print node.label, node.partials
-        else:
-            print node.label, node.lnl.partials
+    t = '(((1:0.2,2:0.2)7:0.1,3:0.2)6:0.1,(4:0.2,5:0.2)8:0.1)0;'
+    t = '((1:0.2,2:0.2):0.1,3:0.2,(4:0.2,5:0.2):0.2);'
+    runner = RunOnTree(t, tm)
+    runner.init_leaves(partials_dict)
+    print runner.run(True)
+    print runner.get_sitewise_likelihoods()
+    
+    gamma = GammaMixture(0.4, 4)
+    gamma.add_tree(t, tm, scale_freq=3)
+    gamma.init_leaves(partials_dict)
+    print gamma.get_likelihood()
+    print gamma.get_sitewise_likelihoods()
 
-    n6, n8 = t.seed_node.child_nodes()
-    print n6.lnl.compute_likelihood(n8.lnl.partials, 0.2, True)
-    print n6.lnl.sitewise
+    kappa = 1
+    k80 = np.array([[0,kappa,1,1],[kappa,0,1,1],[1,1,0,kappa],[1,1,kappa,0]], dtype=np.float)
+    k80f = np.array([0.25,0.25,0.25,0.25])
+    tm = TransitionMatrix(k80, k80f)
+    
+    partials_dict = {'1': seq_to_partials('ACCCT'),
+                 '2': seq_to_partials('TCCCT'),
+                 '3': seq_to_partials('TCGGT'),
+                 '4': seq_to_partials('ACCCA'),
+                 '5': seq_to_partials('CCCCC')}
+
+    gamma = GammaMixture(.02, 4)
+    gamma.add_tree(t, tm, scale_freq=3)
+    gamma.init_leaves(partials_dict)
+    print gamma.get_likelihood()
+    print gamma.get_sitewise_likelihoods()
+    print gamma.get_sitewise_likelihoods().sum(0)
+

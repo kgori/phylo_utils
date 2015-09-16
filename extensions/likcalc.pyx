@@ -51,7 +51,7 @@ cpdef int _partials_one_term(double[:,::1] probs, double[:,::1] partials, double
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cpdef int _partials(double[:,::1] probs1, double[:,::1] probs2, double[:,::1] partials1,
-                    double[:,::1] partials2, double[:,::1] return_value) nogil:
+                    double[:,::1] partials2, double[:,::1] out_buffer) nogil:
     """ Cython implementation of Eq (2), Yang (2000) """
     cdef size_t i, j, k
     cdef double entry1, entry2
@@ -64,7 +64,33 @@ cpdef int _partials(double[:,::1] probs1, double[:,::1] probs2, double[:,::1] pa
             for k in xrange(states):
                 entry1 += probs1[j, k] * partials1[i, k]
                 entry2 += probs2[j, k] * partials2[i, k]
-            return_value[i, j] = entry1 * entry2
+            out_buffer[i, j] = entry1 * entry2
+    return 0
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef int _scaled_partials(double[:,::1] probs1, double[:,::1] probs2, double[:,::1] partials1,
+                    double[:,::1] partials2, double[::1] scale_buffer, double[:,::1] out_buffer) nogil:
+    """ Cython implementation of Eq (2), Yang (2000) """
+    cdef size_t i, j, k
+    cdef double entry1, entry2, l, lmax
+    sites = partials1.shape[0]
+    states = partials1.shape[1]
+    for i in xrange(sites):
+        lmax = 0
+        for j in xrange(states):
+            entry1 = 0
+            entry2 = 0
+            for k in xrange(states):
+                entry1 += probs1[j, k] * partials1[i, k]
+                entry2 += probs2[j, k] * partials2[i, k]
+            l = entry1 * entry2
+            if l > lmax: 
+                lmax = l
+            out_buffer[i, j] = l
+        for k in xrange(states):
+            out_buffer[i, k] /= lmax
+        scale_buffer[i] = log(lmax)
     return 0
 
 @cython.boundscheck(False)
@@ -195,6 +221,19 @@ def likvec_2desc(probs1, probs2, partials1, partials2):
     r = np.empty((sites,states))
     _partials(probs1, probs2, partials1, partials2, r)
     return r
+
+def likvec_2desc_scaled(probs1, probs2, partials1, partials2):
+    """
+    Compute the product of vectors of partials for two descendants,
+    i.e. the partials for a node with two descendants
+    Equation (2) from Yang (2000)
+    """
+    if not partials1.shape == partials2.shape or not probs1.shape == probs2.shape: raise ValueError('Mismatched arrays')
+    sites, states = partials1.shape
+    r = np.empty((sites,states))
+    s = np.empty(sites)
+    _scaled_partials(probs1, probs2, partials1, partials2, s, r)
+    return r, s
 
 def sitewise_lik_derivs(evecs, evals, ivecs, freqs, t, partials_a, partials_b):
     sites = partials_a.shape[0]
