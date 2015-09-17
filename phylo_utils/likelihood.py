@@ -83,31 +83,25 @@ class LnlModel(object):
 
 
 class RunOnTree(object):
-    def __init__(self, tree, transition_matrix, scale_freq=20):
-        self.tree = dpy.Tree.get_from_string(tree, 'newick')
-        self.tree.resolve_polytomies()
+    def __init__(self, transition_matrix, partials_dict, scale_freq=20):
+        # Initialise leaves
+        self.leaf_models = {}
+        for (leafname, partials) in partials_dict.items():
+            model = LnlModel(transition_matrix)
+            model.set_partials(partials)
+            self.leaf_models[leafname] = model
 
-        # Initialise models
-        self.num_leaves = len(self.tree.leaf_nodes())
-        self.num_inner = len(self.tree.internal_nodes())
-        self.leaf_models = [Leaf() for _ in xrange(self.num_leaves)]
-        self.inner_models = [LnlModel(transition_matrix) for _ in xrange(self.num_inner)]
-
+        self.nsites = partials_dict.values()[0].shape[0]
         self.tm = transition_matrix
         self.internal_node_counter = 0
         self.accumulated_scale_buffer = None
         self.scale_freq = scale_freq
 
-    def attach_models_to_tree(self, partials_dict):
-        pass
-        
-    def init_leaves(self, partials_dict):
-        self.internal_node_counter = 0
-        example_leaf = None
-        for i, leaf in enumerate(self.tree.leaf_nodes()):
-            taxon = leaf.taxon.label
-            leaf.model = Leaf(partials_dict[taxon])
-        self.nsites = leaf.model.partials.shape[0]
+    def set_tree(self, tree):
+        self.tree = dpy.Tree.get_from_string(tree, 'newick')
+        self.tree.resolve_polytomies() # Require strictly binary tree, including root node
+        for leaf in self.tree.leaf_nodes():
+            leaf.model = self.leaf_models[leaf.taxon.label]
 
     def run(self, derivatives=False):
         self.internal_node_counter = 0
@@ -130,7 +124,7 @@ class RunOnTree(object):
     def get_sitewise_likelihoods(self):
         ch = self.tree.seed_node.child_nodes()[0]
         return np.log(ch.model.sitewise[:, 0]) + self.accumulated_scale_buffer
-        
+
 
 class Mixture(object):
     def __init__(self):
@@ -149,17 +143,15 @@ class GammaMixture(Mixture):
         self.rates = likcalc.discrete_gamma(alpha, ncat)
         self.weights = np.array([1.0/ncat] * ncat)
 
-    def add_tree(self, tree, tm, scale_freq=20):
+    def set_tree(self, tree, tm, partials_dict, scale_freq=20):
         self.runners = []
         for cat in range(self.ncat):
             t = dpy.Tree.get_from_string(tree, 'newick')
             t.resolve_polytomies()
             t.scale_edges(self.rates[cat])
-            self.runners.append(RunOnTree(t.as_newick_string()+';', tm))
-
-    def init_leaves(self, partials_dict):
-        for runner in self.runners:
-            runner.init_leaves(partials_dict)
+            runner = RunOnTree(tm, partials_dict, scale_freq)
+            runner.set_tree(t.as_newick_string()+';')
+            self.runners.append(runner)
 
     def run(self):
         for runner in self.runners:
@@ -222,14 +214,13 @@ def optimise(likelihood, partials_a, partials_b, min_brlen=0.00001, max_brlen=10
 
 if __name__ == '__main__':
     from seq_to_partials import dna_charmap, protein_charmap, seq_to_partials
-
+    from models import K80
     #####################################
     # Pairwise distance optimiser demo:
 
     kappa = 1
-    k80 = np.array([[0,kappa,1,1],[kappa,0,1,1],[1,1,0,kappa],[1,1,kappa,0]], dtype=np.float)
-    k80f = np.array([0.25,0.25,0.25,0.25])
-    tm = TransitionMatrix(k80, k80f)
+    k80 = K80(kappa)
+    tm = TransitionMatrix(k80)
     # Simulated data from K80, kappa=1, distance = 0.8
     sites_a = seq_to_partials('ACCCTCCGCGTTGGGTAGTCCTAGGCCCAATGGCGTTTATGCCTCGATTTTTAGTTCTACCGTCCCTACAGATGGATGCCGTCGCATAGACACTGTCAATTCCATTCGGCAGGCTTCACACTGTTGCATTTTCATTTTGTACACGGTACCAACATAGGAGTGCTGTATTGCTATATTTCCAGTACACGGCGTTGAGTCGGATGGAAACGCCGGCGGAAGACAGCTTGGCGGGTCTTCACGCATCACCGCGGGGTCTGAAAGGTATTATCGCTGCTTAAATCAGACCGGTCAAGCTTCCTGGCGGAAGGCGGCAAGGTCCAGCCACAGCATGCTTATTCCTTGTCACGCCGGGTGGAAATCTAGAGCGTCCGGTGGACACAGAGTGATTTTGTACGGGGGGTTCCATACCAGGACATTAGGGTCGGTTTACGGTCTGAGATGTATGTTGCCTTGCGGTCGACGAGCACTGATTCCCCTGAACTTCGTAAGACACATATAGTTTTAATGAAATCCCCAAAACGAGCATGGTTTCAGTATACGCGACAACTTAGGATACAACATACTGAACCAGTCCGCATTGAGGTGCCAATCAAACGGGACCGGGACTGATAAGTATAAAATAGGTTTCCCTGTCCTCTACCTACGTTATCCTCGCGTCGATTTTGATTCTTACCAAGACTGCTAATCAGGCCCTGTGGCCTGCATGTCACCATGTCAGCGTGTTTGGCTAAATTCACGGGATTGGCCTTACCGACTTACATCAGTATTTCATACATAGTTACTCGAGTTTAACGTTGACAGTTAGTCCCATGATACGGCAAAGCCTGGTTCGGCGGATTTCCGAGTACAGCATCTTCGCCCCCGAGATTGCCGCCAATGGACACCCTCCTGAGATGCAGATATGAGTGTTTTTGACACTCTGAGGCTGAGATCCTCACACTTCCGGAGCTTCCGCGATAGTCACGTGGTTATTAGACTTACGGCAGGAAAAATCATGTTA', alphabet='dna')
     sites_b = seq_to_partials('AAGCTCCGCGTAAGCTAACGACCAGTCAGCTAGGTTTAGTGCCACCAGTATGGCTAGTTCCGGAGGGCAAACCGGATGCTACCGATTGGTCACCCTCAGGGTGATTTCGCAGGGCGCTCACTTATTCCTTTTAAATCCTGCCAACAGACTAAGAAAGTTGTACGGTATTCCTATATCTTCAGTACTGCTCTTGGCCGTGCATGTAGCCGAACGACGAGGACGGTACATGAGTTTCTCACCAATTACAGGCGGTTCCATTAGGCAGTAGCTGCGGTTAGTTCATACTGCTAAAGAATCTTCTTGGAACGTGCCAAGGACCAGTCACACACATGTTGTAGTCCCTCATCGTGGTAGGCGTTCCAGACCGTCCGTGGTACACATACCAAATTTCGTACCGGCTGACTCAAAGCGGGAGTTCGCATGATACCAGGGAACGAGATGTTCAAAACGATCAGGTAGTGCCGCCATCTTTCAGGTTCTTTCGTTTCGTCCTATGATACTTGAGTAGCGGTCAAACGAAGCTCGTAGGTGACAGTTACGAGACATGCTGGGATGCAACATACTTTCGCAGTTAGCTAGTAGGTACCTATCTAGCGAATCGAGCTAGGATACCCTGATTATGCTTGTCTCCGTCCTCTTACTATGATCTCCTCGCGTGGTTTTTGCTGCTTAACCGTTGTGCCGTATAAAACAAGAGGCGGGAGTTTAGCTGTGGGAACTTCGTAGACCTTGTAAGCTGGATAGGCCCGTCCGTCGTAATTAATTACCTAAAAGAGAGTCAAACAAGCTTAAGTCGCCGAGTTAGTCGGATAAGAAGCCATTCTCTGGTCCGCCAACCTTCCCATGCCAGTACGGTTGCCGAGGTCCATTCGGTGACTGTGGGATAACCGTTGCCGGAGCTATGAGATCCATTACAACTCTGCGCCTAGGATGTTAACTCTACCGAAGTTTGCGACCCCGGAACCTGTAAATTGTCCTTAGGGTCGTAACATTTTCAAGC', alphabet='dna')
@@ -240,9 +231,8 @@ if __name__ == '__main__':
     # Example from Section 4.2 of Ziheng's book - his value for node 6 is wrong!
     np.set_printoptions(precision=6)
     kappa = 2
-    k80 = np.array([[0,kappa,1,1],[kappa,0,1,1],[1,1,0,kappa],[1,1,kappa,0]], dtype=np.float)
-    k80f = np.array([0.25,0.25,0.25,0.25])
-    tm = TransitionMatrix(k80, k80f)
+    k80 = K80(kappa)
+    tm = TransitionMatrix(k80)
 
     partials_1 = np.ascontiguousarray(np.array([[1, 0, 0, 0]], dtype=np.float))
     partials_2 = np.ascontiguousarray(np.array([[0, 1, 0, 0]], dtype=np.float))
@@ -259,21 +249,19 @@ if __name__ == '__main__':
 
     t = '(((1:0.2,2:0.2)7:0.1,3:0.2)6:0.1,(4:0.2,5:0.2)8:0.1)0;'
     t = '((1:0.2,2:0.2):0.1,3:0.2,(4:0.2,5:0.2):0.2);'
-    runner = RunOnTree(t, tm)
-    runner.init_leaves(partials_dict)
+    runner = RunOnTree(tm, partials_dict)
+    runner.set_tree(t)
     print runner.run(True)
     print runner.get_sitewise_likelihoods()
     
-    gamma = GammaMixture(0.4, 4)
-    gamma.add_tree(t, tm, scale_freq=3)
-    gamma.init_leaves(partials_dict)
+    gamma = GammaMixture(400, 4)
+    gamma.set_tree(t, tm, partials_dict, scale_freq=3)
     print gamma.get_likelihood()
     print gamma.get_sitewise_likelihoods()
 
-    kappa = 1
-    k80 = np.array([[0,kappa,1,1],[kappa,0,1,1],[1,1,0,kappa],[1,1,kappa,0]], dtype=np.float)
-    k80f = np.array([0.25,0.25,0.25,0.25])
-    tm = TransitionMatrix(k80, k80f)
+    kappa = 2
+    k80 = K80(kappa)
+    tm = TransitionMatrix(k80)
     
     partials_dict = {'1': seq_to_partials('ACCCT'),
                  '2': seq_to_partials('TCCCT'),
@@ -281,9 +269,8 @@ if __name__ == '__main__':
                  '4': seq_to_partials('ACCCA'),
                  '5': seq_to_partials('CCCCC')}
 
-    gamma = GammaMixture(.02, 4)
-    gamma.add_tree(t, tm, scale_freq=3)
-    gamma.init_leaves(partials_dict)
+    gamma = GammaMixture(.03, 4)
+    gamma.set_tree(t, tm, partials_dict, scale_freq=200)
     print gamma.get_likelihood()
     print gamma.get_sitewise_likelihoods()
     print gamma.get_sitewise_likelihoods().sum(0)

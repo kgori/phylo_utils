@@ -8,6 +8,7 @@ class Model(object):
     _name = None
     _rates = None
     _freqs = None
+    _size = None
 
     @property
     def name(self):
@@ -21,8 +22,29 @@ class Model(object):
     def freqs(self):
         return self._freqs
 
+    @property
+    def size(self):
+        return self._size
+    
 
-lg_rates = np.array(
+
+def check_frequencies(freqs, length):
+    freqs = np.ascontiguousarray(freqs)
+    if len(freqs) != length:
+        raise ValueError('Frequencies vector is not the right length (length={})'.format(len(freqs)))
+    if not np.allclose(sum(freqs), 1.0):
+        raise ValueError('Frequencies do not add to 1.0 within tolerance (sum={})'.format(sum(freqs)))
+    return freqs
+
+def check_rates(rates, size):
+    rates = np.ascontiguousarray(rates)
+    if rates.shape != (size, size):
+        raise ValueError('Rate matrix is not the right shape (length={})'.format(rates.shape))
+    if not np.allclose(rates, rates.T):
+        raise ValueError('Rate matrix is not symmetrical')
+    return rates
+
+lg_rates = np.ascontiguousarray(
       [[  0.      ,   0.425093,   0.276818,   0.395144,   2.489084,   0.969894,   1.038545,   2.06604 ,   0.358858,   0.14983 ,   0.395337,   0.536518,   1.124035,   0.253701,   1.177651,   4.727182,   2.139501,   0.180717,   0.218959,   2.54787 ],
        [  0.425093,   0.      ,   0.751878,   0.123954,   0.534551,   2.807908,   0.36397 ,   0.390192,   2.426601,   0.126991,   0.301848,   6.326067,   0.484133,   0.052722,   0.332533,   0.858151,   0.578987,   0.593607,   0.31444 ,   0.170887],
        [  0.276818,   0.751878,   0.      ,   5.076149,   0.528768,   1.695752,   0.541712,   1.437645,   4.509238,   0.191503,   0.068427,   2.145078,   0.371004,   0.089525,   0.161787,   4.008358,   2.000679,   0.045376,   0.612025,   0.083688],
@@ -44,13 +66,78 @@ lg_rates = np.array(
        [  0.218959,   0.31444 ,   0.612025,   0.135107,   1.165532,   0.257336,   0.120037,   0.054679,   5.306834,   0.232523,   0.299648,   0.131932,   0.481306,   7.803902,   0.089613,   0.400547,   0.245841,   3.151815,   0.      ,   0.249313],
        [  2.54787 ,   0.170887,   0.083688,   0.037967,   1.959291,   0.210332,   0.245034,   0.076701,   0.119013,  10.649107,   1.702745,   0.185202,   1.898718,   0.654683,   0.296501,   0.098369,   2.188158,   0.18951 ,   0.249313,   0.      ]])
 
-lg_freqs = np.array([0.079066, 0.055941, 0.041977, 0.053052, 0.012937, 0.040767, 0.071586, 0.057337, 0.022355, 0.062157, 0.099081, 0.064600, 0.022951, 0.042302, 0.044040, 0.061197, 0.053287, 0.012066, 0.034155, 0.069147])
+lg_freqs = np.ascontiguousarray([0.079066, 0.055941, 0.041977, 0.053052, 0.012937, 0.040767, 0.071586, 0.057337, 0.022355, 0.062157, 0.099081, 0.064600, 0.022951, 0.042302, 0.044040, 0.061197, 0.053287, 0.012066, 0.034155, 0.069147])
+
+fixed_equal_nucleotide_rates = np.ascontiguousarray([[0.0, 1.0, 1.0, 1.0], [1.0, 0.0, 1.0, 1.0], [1.0, 1.0, 0.0, 1.0], [1.0, 1.0, 1.0, 0.0]])
+fixed_equal_nucleotide_frequencies = np.ascontiguousarray([0.25, 0.25, 0.25, 0.25])
 
 
-class LG(Model):
+class ProteinModel(Model):
+    _name = 'GenericProtein'
+    _size = 20
+    def __init__(self, rates, freqs):
+        self._rates = check_rates(rates, self.size)
+        self._freqs = check_frequencies(freqs, self.size)
+
+
+class LG(ProteinModel):
     _name = 'LG'
     _rates = lg_rates
-    _freqs = lg_freqs
+    def __init__(self, freqs=None):
+        if freqs is None:
+            self._freqs = lg_freqs
+        else:
+            self._freqs = check_frequencies(freqs, self.size)
 
-del np
-del ABCMeta
+
+class GTR(Model):
+    _name = 'GTR'
+    _size = 4
+    def __init__(self, rates=None, freqs=None, reorder=False):
+        """ reorder=True indicates that the input rates and frequencies 
+        are given in column order ACGT, and need to be reordered 
+        to the order TCAG (paml order) """
+        if rates is None:
+            rates = fixed_equal_nucleotide_rates.copy()
+        if freqs is None:
+            freqs = fixed_equal_nucleotide_frequencies.copy()
+        if rates.shape == (self.size, self.size):
+            self._rates = check_rates(rates, self.size)
+        elif rates.shape == (self.size*(self.size-1)/2,):
+            self._rates = check_rates(self.square_matrix(rates), self.size)
+        self._freqs = check_frequencies(freqs, self.size)
+        if reorder:
+            self._rates = self._rates[np.array([[3,1,0,2]]), np.array([[3],[1],[0],[2]])]
+            self._freqs = self._freqs[np.array([3,1,0,2])]
+
+    @classmethod
+    def square_matrix(cls, uppertri):
+        mtx = np.zeros((cls.size, cls.size))
+        mtx[0, 1] = mtx[1, 0] = uppertri[0] # TC
+        mtx[0, 2] = mtx[2, 0] = uppertri[1] # TA
+        mtx[0, 3] = mtx[3, 0] = uppertri[2] # TG
+        mtx[1, 2] = mtx[2, 1] = uppertri[3] # CA
+        mtx[1, 3] = mtx[3, 1] = uppertri[4] # CG
+        mtx[2, 3] = mtx[3, 2] = uppertri[5] # AG
+        return mtx
+
+ 
+class K80(Model):
+    _name = 'K80'
+    _size = 4
+    _freqs = fixed_equal_nucleotide_frequencies
+    def __init__(self, kappa=None):
+        if kappa is None:
+            kappa = 2
+        mtx = np.array([[0,kappa,1,1],[kappa,0,1,1],[1,1,0,kappa],[1,1,kappa,0]], dtype=np.double)
+        self._rates = check_rates(mtx, 4)
+
+
+class DNAModel(Model):
+    _name = 'GenericDNA'
+    _size = 4
+    def __init__(self, rates, freqs):
+        self._rates = check_rates(rates, self.size)
+        self._freqs = check_frequencies(freqs, self.size)
+
+

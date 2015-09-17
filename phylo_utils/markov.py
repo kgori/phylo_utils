@@ -43,11 +43,12 @@ class Eigen(object):
 
 
 class TransitionMatrix(object):
-    def __init__(self, rates, freqs):
-        self.q_mtx = get_q_matrix(rates, freqs)
-        self.freqs = freqs
-        self.eigen = Eigen(self.q_mtx, freqs)
-        self.size = len(freqs)
+    def __init__(self, model):
+        self.model = model
+        self.q_mtx = get_q_matrix(model.rates, model.freqs)
+        self.freqs = model.freqs
+        self.eigen = Eigen(self.q_mtx, model.freqs)
+        self.size = len(model.freqs)
 
     def get_q_matrix(self):
         return self.q_mtx
