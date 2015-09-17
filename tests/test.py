@@ -53,14 +53,24 @@ k80 = K80(kappa)
 tm = TransitionMatrix(k80)
 
 partials_dict = {'1': seq_to_partials('ACCCT'),
-             '2': seq_to_partials('TCCCT'),
-             '3': seq_to_partials('TCGGT'),
-             '4': seq_to_partials('ACCCA'),
-             '5': seq_to_partials('CCCCC')}
+                 '2': seq_to_partials('TCCCT'),
+                 '3': seq_to_partials('TCGGT'),
+                 '4': seq_to_partials('ACCCA'),
+                 '5': seq_to_partials('CCCCC')}
 
 gamma = GammaMixture(.03, 4)
 gamma.init_models(tm, partials_dict, scale_freq=200)
 gamma.set_tree(t)
+print gamma.get_likelihood()
+print gamma.get_sitewise_likelihoods()
+print gamma.get_sitewise_likelihoods().sum(0)
+
+gamma.update_alpha(1.0)
+print gamma.get_likelihood()
+print gamma.get_sitewise_likelihoods()
+print gamma.get_sitewise_likelihoods().sum(0)
+
+gamma.update_transition_matrix(TransitionMatrix(K80(3)))
 print gamma.get_likelihood()
 print gamma.get_sitewise_likelihoods()
 print gamma.get_sitewise_likelihoods().sum(0)

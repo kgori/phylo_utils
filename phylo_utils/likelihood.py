@@ -103,6 +103,11 @@ class RunOnTree(object):
         for leaf in self.tree.leaf_nodes():
             leaf.model = self.leaf_models[leaf.taxon.label]
 
+    def update_transition_matrix(self, tm):
+        self.tm = tm
+        for leaf in self.tree.leaf_nodes():
+            leaf.model.transmat = tm
+
     def run(self, derivatives=False):
         self.internal_node_counter = 0
         self.accumulated_scale_buffer = np.zeros(self.nsites)
@@ -143,6 +148,14 @@ class GammaMixture(Mixture):
         self.rates = likcalc.discrete_gamma(alpha, ncat)
         self.weights = np.array([1.0/ncat] * ncat)
 
+    def update_alpha(self, alpha):
+        self.rates = likcalc.discrete_gamma(alpha, self.ncat)
+        self.set_tree(self.tree)
+
+    def update_transition_matrix(self, tm):
+        for runner in self.runners:
+            runner.update_transition_matrix(tm)
+
     def init_models(self, tm, partials_dict, scale_freq=20):
         self.runners = []
         for cat in xrange(self.ncat):
@@ -150,6 +163,7 @@ class GammaMixture(Mixture):
             self.runners.append(runner)
 
     def set_tree(self, tree):
+        self.tree = tree
         for cat in xrange(self.ncat):
             t = dpy.Tree.get_from_string(tree, 'newick')
             t.resolve_polytomies()
