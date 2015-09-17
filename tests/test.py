@@ -1,53 +1,64 @@
+from phylo_utils.seq_to_partials import dna_charmap, protein_charmap, seq_to_partials
+from phylo_utils.models import K80
+from phylo_utils.markov import TransitionMatrix
+from phylo_utils.likelihood import optimise, GammaMixture, RunOnTree
 import numpy as np
-import utils
-import time
+#####################################
+# Pairwise distance optimiser demo:
 
-def prep(l, astype):
-    return np.ascontiguousarray(np.array(l).flatten(), dtype=astype)
+kappa = 1
+k80 = K80(kappa)
+tm = TransitionMatrix(k80)
+# Simulated data from K80, kappa=1, distance = 0.8
+sites_a = seq_to_partials('ACCCTCCGCGTTGGGTAGTCCTAGGCCCAATGGCGTTTATGCCTCGATTTTTAGTTCTACCGTCCCTACAGATGGATGCCGTCGCATAGACACTGTCAATTCCATTCGGCAGGCTTCACACTGTTGCATTTTCATTTTGTACACGGTACCAACATAGGAGTGCTGTATTGCTATATTTCCAGTACACGGCGTTGAGTCGGATGGAAACGCCGGCGGAAGACAGCTTGGCGGGTCTTCACGCATCACCGCGGGGTCTGAAAGGTATTATCGCTGCTTAAATCAGACCGGTCAAGCTTCCTGGCGGAAGGCGGCAAGGTCCAGCCACAGCATGCTTATTCCTTGTCACGCCGGGTGGAAATCTAGAGCGTCCGGTGGACACAGAGTGATTTTGTACGGGGGGTTCCATACCAGGACATTAGGGTCGGTTTACGGTCTGAGATGTATGTTGCCTTGCGGTCGACGAGCACTGATTCCCCTGAACTTCGTAAGACACATATAGTTTTAATGAAATCCCCAAAACGAGCATGGTTTCAGTATACGCGACAACTTAGGATACAACATACTGAACCAGTCCGCATTGAGGTGCCAATCAAACGGGACCGGGACTGATAAGTATAAAATAGGTTTCCCTGTCCTCTACCTACGTTATCCTCGCGTCGATTTTGATTCTTACCAAGACTGCTAATCAGGCCCTGTGGCCTGCATGTCACCATGTCAGCGTGTTTGGCTAAATTCACGGGATTGGCCTTACCGACTTACATCAGTATTTCATACATAGTTACTCGAGTTTAACGTTGACAGTTAGTCCCATGATACGGCAAAGCCTGGTTCGGCGGATTTCCGAGTACAGCATCTTCGCCCCCGAGATTGCCGCCAATGGACACCCTCCTGAGATGCAGATATGAGTGTTTTTGACACTCTGAGGCTGAGATCCTCACACTTCCGGAGCTTCCGCGATAGTCACGTGGTTATTAGACTTACGGCAGGAAAAATCATGTTA', alphabet='dna')
+sites_b = seq_to_partials('AAGCTCCGCGTAAGCTAACGACCAGTCAGCTAGGTTTAGTGCCACCAGTATGGCTAGTTCCGGAGGGCAAACCGGATGCTACCGATTGGTCACCCTCAGGGTGATTTCGCAGGGCGCTCACTTATTCCTTTTAAATCCTGCCAACAGACTAAGAAAGTTGTACGGTATTCCTATATCTTCAGTACTGCTCTTGGCCGTGCATGTAGCCGAACGACGAGGACGGTACATGAGTTTCTCACCAATTACAGGCGGTTCCATTAGGCAGTAGCTGCGGTTAGTTCATACTGCTAAAGAATCTTCTTGGAACGTGCCAAGGACCAGTCACACACATGTTGTAGTCCCTCATCGTGGTAGGCGTTCCAGACCGTCCGTGGTACACATACCAAATTTCGTACCGGCTGACTCAAAGCGGGAGTTCGCATGATACCAGGGAACGAGATGTTCAAAACGATCAGGTAGTGCCGCCATCTTTCAGGTTCTTTCGTTTCGTCCTATGATACTTGAGTAGCGGTCAAACGAAGCTCGTAGGTGACAGTTACGAGACATGCTGGGATGCAACATACTTTCGCAGTTAGCTAGTAGGTACCTATCTAGCGAATCGAGCTAGGATACCCTGATTATGCTTGTCTCCGTCCTCTTACTATGATCTCCTCGCGTGGTTTTTGCTGCTTAACCGTTGTGCCGTATAAAACAAGAGGCGGGAGTTTAGCTGTGGGAACTTCGTAGACCTTGTAAGCTGGATAGGCCCGTCCGTCGTAATTAATTACCTAAAAGAGAGTCAAACAAGCTTAAGTCGCCGAGTTAGTCGGATAAGAAGCCATTCTCTGGTCCGCCAACCTTCCCATGCCAGTACGGTTGCCGAGGTCCATTCGGTGACTGTGGGATAACCGTTGCCGGAGCTATGAGATCCATTACAACTCTGCGCCTAGGATGTTAACTCTACCGAAGTTTGCGACCCCGGAACCTGTAAATTGTCCTTAGGGTCGTAACATTTTCAAGC', alphabet='dna')
 
-def numpy_likvec(probs, partials):
-    """ Calculate the likelihood vector for a site """
-    result = np.empty(partials.shape)
-    for i in xrange(partials.shape[0]):
-        result[i] = (probs*partials[i]).sum(1)
-    return result
+optimise(tm, sites_a, sites_b)
 
-p = np.array([[ 0.825092,  0.084274,  0.045317,  0.045317],
-              [ 0.084274,  0.825092,  0.045317,  0.045317],
-              [ 0.045317,  0.045317,  0.825092,  0.084274],
-              [ 0.045317,  0.045317,  0.084274,  0.825092]])
-s = np.array([[ 0.,  0.,  0.,  1.], [ 0.,  1.,  0.,  0.], [ 0.,  1.,  0.,  0.]]*1000)
-# r = np.empty(np.prod(s.shape))
-# print r.flags
-# print r
+############################################################################
+# Example from Section 4.2 of Ziheng's book - his value for node 6 is wrong!
+np.set_printoptions(precision=6)
+kappa = 2
+k80 = K80(kappa)
+tm = TransitionMatrix(k80)
 
-p2 = p.copy()
-s2 = s.copy()
+partials_1 = np.ascontiguousarray(np.array([[1, 0, 0, 0]], dtype=np.float))
+partials_2 = np.ascontiguousarray(np.array([[0, 1, 0, 0]], dtype=np.float))
+partials_3 = np.ascontiguousarray(np.array([[0, 0, 1, 0]], dtype=np.float))
+partials_4 = np.ascontiguousarray(np.array([[0, 1, 0, 0]], dtype=np.float))
+partials_5 = np.ascontiguousarray(np.array([[0, 1, 0, 0]], dtype=np.float))
 
-reps = 10000
-
-start = time.time()
-for _ in range(reps):
-    c=utils.likvec(p, s)
-end = time.time()
-print 'Time taken for {} calls of likvec = {}'.format(reps, end-start)
-c=c.reshape(3000,4)
-print c
-
-start = time.time()
-for _ in range(reps):
-    m=utils.likvec2(p, p2, s, s2)
-end = time.time()
-print 'Time taken for {} calls of likvec_mv = {}'.format(reps, end-start)
-print m
+partials_dict = {'1': partials_1,
+                 '2': partials_2,
+                 '3': partials_3,
+                 '4': partials_4,
+                 '5': partials_5}
 
 
-reps/=200
-start = time.time()
-for _ in range(reps):
-    n=numpy_likvec(p, s)
-end = time.time()
-print 'Time taken for {} calls of numpy_likvec = {}'.format(reps, end-start)
-print n
+t = '(((1:0.2,2:0.2)7:0.1,3:0.2)6:0.1,(4:0.2,5:0.2)8:0.1)0;'
+t = '((1:0.2,2:0.2):0.1,3:0.2,(4:0.2,5:0.2):0.2);'
+runner = RunOnTree(tm, partials_dict)
+runner.set_tree(t)
+print runner.run(True)
+print runner.get_sitewise_likelihoods()
 
-print 'Results are the same?', np.allclose(m, c), np.allclose(m, n)
+gamma = GammaMixture(400, 4)
+gamma.set_tree(t, tm, partials_dict, scale_freq=3)
+print gamma.get_likelihood()
+print gamma.get_sitewise_likelihoods()
+
+kappa = 2
+k80 = K80(kappa)
+tm = TransitionMatrix(k80)
+
+partials_dict = {'1': seq_to_partials('ACCCT'),
+             '2': seq_to_partials('TCCCT'),
+             '3': seq_to_partials('TCGGT'),
+             '4': seq_to_partials('ACCCA'),
+             '5': seq_to_partials('CCCCC')}
+
+gamma = GammaMixture(.03, 4)
+gamma.set_tree(t, tm, partials_dict, scale_freq=200)
+print gamma.get_likelihood()
+print gamma.get_sitewise_likelihoods()
+print gamma.get_sitewise_likelihoods().sum(0)
