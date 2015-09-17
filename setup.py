@@ -23,6 +23,6 @@ setup(cmdclass={'build_ext':build_ext},
       url='',
       version="0.0.1",
       ext_modules = [ext],
-      install_requires = ['cython', 'numpy'],
+      install_requires = ['cython', 'numpy', 'dendropy'],
       packages=find_packages(),
      )
