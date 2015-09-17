@@ -7,7 +7,7 @@ from Cython.Distutils import build_ext
 
 import numpy
 
-ext = Extension("likcalc",
+ext = Extension("phylo_utils.likcalc",
                 sources = ['extensions/likcalc.pyx',
                            'extensions/discrete_gamma.c'],
                 include_dirs = [numpy.get_include()],
