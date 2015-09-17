@@ -5,7 +5,7 @@ import dendropy as dpy
 
 def setup_logger():
     import logging
-    logger = logging.getLogger()
+    logger = logging.getLogger(__name__)
     for handler in logger.handlers:
         logger.removeHandler(handler)
     ch=logging.StreamHandler()
