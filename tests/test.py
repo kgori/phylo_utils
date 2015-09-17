@@ -43,7 +43,8 @@ print runner.run(True)
 print runner.get_sitewise_likelihoods()
 
 gamma = GammaMixture(400, 4)
-gamma.set_tree(t, tm, partials_dict, scale_freq=3)
+gamma.init_models(tm, partials_dict, scale_freq=3)
+gamma.set_tree(t)
 print gamma.get_likelihood()
 print gamma.get_sitewise_likelihoods()
 
@@ -58,7 +59,8 @@ partials_dict = {'1': seq_to_partials('ACCCT'),
              '5': seq_to_partials('CCCCC')}
 
 gamma = GammaMixture(.03, 4)
-gamma.set_tree(t, tm, partials_dict, scale_freq=200)
+gamma.init_models(tm, partials_dict, scale_freq=200)
+gamma.set_tree(t)
 print gamma.get_likelihood()
 print gamma.get_sitewise_likelihoods()
 print gamma.get_sitewise_likelihoods().sum(0)

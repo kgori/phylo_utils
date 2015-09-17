@@ -143,15 +143,18 @@ class GammaMixture(Mixture):
         self.rates = likcalc.discrete_gamma(alpha, ncat)
         self.weights = np.array([1.0/ncat] * ncat)
 
-    def set_tree(self, tree, tm, partials_dict, scale_freq=20):
+    def init_models(self, tm, partials_dict, scale_freq=20):
         self.runners = []
-        for cat in range(self.ncat):
+        for cat in xrange(self.ncat):
+            runner = RunOnTree(tm, partials_dict, scale_freq)
+            self.runners.append(runner)
+
+    def set_tree(self, tree):
+        for cat in xrange(self.ncat):
             t = dpy.Tree.get_from_string(tree, 'newick')
             t.resolve_polytomies()
             t.scale_edges(self.rates[cat])
-            runner = RunOnTree(tm, partials_dict, scale_freq)
-            runner.set_tree(t.as_newick_string()+';')
-            self.runners.append(runner)
+            self.runners[cat].set_tree(t.as_newick_string()+';')
 
     def run(self):
         for runner in self.runners:

@@ -67,9 +67,12 @@ lg_rates = np.ascontiguousarray(
        [  2.54787 ,   0.170887,   0.083688,   0.037967,   1.959291,   0.210332,   0.245034,   0.076701,   0.119013,  10.649107,   1.702745,   0.185202,   1.898718,   0.654683,   0.296501,   0.098369,   2.188158,   0.18951 ,   0.249313,   0.      ]])
 
 lg_freqs = np.ascontiguousarray([0.079066, 0.055941, 0.041977, 0.053052, 0.012937, 0.040767, 0.071586, 0.057337, 0.022355, 0.062157, 0.099081, 0.064600, 0.022951, 0.042302, 0.044040, 0.061197, 0.053287, 0.012066, 0.034155, 0.069147])
+lg_freqs.setflags(write=False)
+lg_rates.setflags(write=False)
 
 fixed_equal_nucleotide_rates = np.ascontiguousarray([[0.0, 1.0, 1.0, 1.0], [1.0, 0.0, 1.0, 1.0], [1.0, 1.0, 0.0, 1.0], [1.0, 1.0, 1.0, 0.0]])
 fixed_equal_nucleotide_frequencies = np.ascontiguousarray([0.25, 0.25, 0.25, 0.25])
+fixed_equal_nucleotide_frequencies.setflags(write=False)
 
 
 class ProteinModel(Model):
@@ -82,10 +85,10 @@ class ProteinModel(Model):
 
 class LG(ProteinModel):
     _name = 'LG'
-    _rates = lg_rates
+    _rates = lg_rates.copy()
     def __init__(self, freqs=None):
         if freqs is None:
-            self._freqs = lg_freqs
+            self._freqs = lg_freqs.copy()
         else:
             self._freqs = check_frequencies(freqs, self.size)
 
@@ -125,7 +128,7 @@ class GTR(Model):
 class K80(Model):
     _name = 'K80'
     _size = 4
-    _freqs = fixed_equal_nucleotide_frequencies
+    _freqs = fixed_equal_nucleotide_frequencies.copy()
     def __init__(self, kappa=None):
         if kappa is None:
             kappa = 2
