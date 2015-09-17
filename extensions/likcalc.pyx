@@ -131,6 +131,8 @@ cpdef int _single_site_lik_derivs(double[:,::1] evecs, double[::1] evals, double
         f += pi[a] * abuf * partials_a[a]
         fp += pi[a] * apbuf * partials_a[a]
         f2p += pi[a] * a2pbuf * partials_a[a]
+    if f < 1e-320: # numerical stability issues, clamp to a loggable value
+        f = 1e-320
     out[0] = f
     out[1] = fp
     out[2] = f2p
@@ -157,6 +159,8 @@ cpdef int _single_site_lik(double[:,::1] evecs, double[::1] evals, double[::1,:]
                 s += evecs[a, k] * ivecs[k, b] * exp(evals[k]*t)
             sb += s * partials_b[b]
         f += pi[a] * sb * partials_a[a]
+    if f < 1e-320: # numerical stability issues, clamp to a loggable value
+        f = 1e-320
     out[0] = f
     return 0
 
