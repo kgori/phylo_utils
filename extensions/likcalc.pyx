@@ -2,6 +2,7 @@ import numpy as np
 cimport numpy as np
 cimport cython
 from libc.math cimport exp, log
+from libc.stdio cimport printf
 
 __all__ = ['discrete_gamma', 'likvec', 'likvec2']
 
@@ -72,7 +73,7 @@ cpdef int _partials(double[:,::1] probs1, double[:,::1] probs2, double[:,::1] pa
 cpdef int _scaled_partials(double[:,::1] probs1, double[:,::1] probs2, double[:,::1] partials1,
                     double[:,::1] partials2, double[::1] scale_buffer, double[:,::1] out_buffer) nogil:
     """ Cython implementation of Eq (2), Yang (2000) """
-    cdef size_t i, j, k
+    cdef size_t i, j, k, lmaxi # position where lmax was found
     cdef double entry1, entry2, l, lmax
     sites = partials1.shape[0]
     states = partials1.shape[1]
@@ -87,10 +88,20 @@ cpdef int _scaled_partials(double[:,::1] probs1, double[:,::1] probs2, double[:,
             l = entry1 * entry2
             if l > lmax: 
                 lmax = l
+                lmaxi = j
             out_buffer[i, j] = l
         for k in xrange(states):
-            out_buffer[i, k] /= lmax
-        scale_buffer[i] = log(lmax)
+            if lmax < 1e-300:  # Numerical stability - do what paml does, c.f. treesub.c NodeScale function
+                if k == lmaxi:
+                    out_buffer[i, k] = 1
+                else:
+                    out_buffer[i, k] = 0
+            else:
+                out_buffer[i, k] /= lmax
+        if lmax < 1e-300:
+            scale_buffer[i] = -800 # PAML source code says "this is problematic?"
+        else:
+            scale_buffer[i] = log(lmax)
     return 0
 
 @cython.boundscheck(False)
