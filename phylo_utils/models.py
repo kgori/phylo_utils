@@ -102,6 +102,8 @@ class GTR(Model):
         to the order TCAG (paml order) """
         if rates is None:
             rates = fixed_equal_nucleotide_rates.copy()
+        else:
+            rates = np.ascontiguousarray(rates)
         if freqs is None:
             freqs = fixed_equal_nucleotide_frequencies.copy()
         if rates.shape == (self.size, self.size):
@@ -113,9 +115,8 @@ class GTR(Model):
             self._rates = self._rates[np.array([[3,1,0,2]]), np.array([[3],[1],[0],[2]])]
             self._freqs = self._freqs[np.array([3,1,0,2])]
 
-    @classmethod
-    def square_matrix(cls, uppertri):
-        mtx = np.zeros((cls.size, cls.size))
+    def square_matrix(self, uppertri):
+        mtx = np.zeros((self.size, self.size))
         mtx[0, 1] = mtx[1, 0] = uppertri[0] # TC
         mtx[0, 2] = mtx[2, 0] = uppertri[1] # TA
         mtx[0, 3] = mtx[3, 0] = uppertri[2] # TG

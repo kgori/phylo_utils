@@ -98,8 +98,9 @@ class RunOnTree(object):
         self.scale_freq = scale_freq
 
     def set_tree(self, tree):
-        self.tree = dpy.Tree.get_from_string(tree, 'newick')
-        self.tree.resolve_polytomies() # Require strictly binary tree, including root node
+        #self.tree = dpy.Tree.get_from_string(tree, 'newick', preserve_underscores=True)
+        #self.tree.resolve_polytomies() # Require strictly binary tree, including root node
+        self.tree = tree
         for leaf in self.tree.leaf_nodes():
             leaf.model = self.leaf_models[leaf.taxon.label]
 
@@ -136,10 +137,15 @@ class Mixture(object):
         pass
 
     def mix_likelihoods(self, sw_lnls):
-        m = sw_lnls.max(1)[:,np.newaxis]
-        v = np.exp(sw_lnls - m)
-        c = (self.weights * v)
-        return np.log(c.sum(1))[:, np.newaxis] + m
+        ma = sw_lnls.max(1)[:,np.newaxis]
+        wa = sw_lnls + self.logweights
+        return np.log(np.exp(wa-ma).sum(1))[:,np.newaxis] + ma
+
+    def mix_likelihoods2(self, sw_lnls):
+        mb = sw_lnls.max(1)[:,np.newaxis]
+        vb = np.exp(sw_lnls - mb)
+        cb = (self.weights * vb)
+        return np.log(cb.sum(1))[:, np.newaxis] + mb
 
 
 class GammaMixture(Mixture):
@@ -147,6 +153,7 @@ class GammaMixture(Mixture):
         self.ncat = ncat
         self.rates = likcalc.discrete_gamma(alpha, ncat)
         self.weights = np.array([1.0/ncat] * ncat)
+        self.logweights = np.log(self.weights)
 
     def update_alpha(self, alpha):
         self.rates = likcalc.discrete_gamma(alpha, self.ncat)
@@ -165,10 +172,10 @@ class GammaMixture(Mixture):
     def set_tree(self, tree):
         self.tree = tree
         for cat in xrange(self.ncat):
-            t = dpy.Tree.get_from_string(tree, 'newick')
+            t = dpy.Tree.get_from_string(tree, 'newick', preserve_underscores=True)
             t.resolve_polytomies()
             t.scale_edges(self.rates[cat])
-            self.runners[cat].set_tree(t.as_newick_string()+';')
+            self.runners[cat].set_tree(t)
 
     def run(self):
         for runner in self.runners:

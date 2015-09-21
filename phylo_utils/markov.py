@@ -57,6 +57,7 @@ class TransitionMatrix(object):
         """
         P = transition probabilities
         """
+        # if t < 1e-8: return np.eye(self.eigen.evals.shape[0])
         evecs, evals, ivecs = self.eigen.values
         return (evecs*np.exp(evals*t)).dot(ivecs)
 
