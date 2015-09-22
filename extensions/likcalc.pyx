@@ -6,6 +6,8 @@ from libc.stdio cimport printf
 
 __all__ = ['discrete_gamma', 'likvec', 'likvec2']
 
+cdef double SCALE_THRESHOLD = 1/340282366920938463463374607431768211456.0
+
 cdef extern from "discrete_gamma.h":
     int DiscreteGamma(double* freqK, double* rK, double alpha, double beta, int K, int UseMedian) nogil
 
@@ -52,13 +54,15 @@ cpdef int _partials_one_term(double[:,::1] probs, double[:,::1] partials, double
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cpdef int _partials(double[:,::1] probs1, double[:,::1] probs2, double[:,::1] partials1,
-                    double[:,::1] partials2, double[:,::1] out_buffer) nogil:
-    """ Cython implementation of Eq (2), Yang (2000) """
+                    double[:,::1] partials2, int[::1] scale_buffer, double[:,::1] out_buffer) nogil:
+    """ Cython implementation of Eq (2), Yang (2000), with scaling as and when required """
     cdef size_t i, j, k
-    cdef double entry1, entry2
+    cdef double entry1, entry2, product
+    cdef int do_scaling # set flag if scaling required
     sites = partials1.shape[0]
     states = partials1.shape[1]
     for i in xrange(sites):
+        do_scaling = 1
         for j in xrange(states):
             entry1 = 0
             entry2 = 0
@@ -66,42 +70,12 @@ cpdef int _partials(double[:,::1] probs1, double[:,::1] probs2, double[:,::1] pa
                 entry1 += probs1[j, k] * partials1[i, k]
                 entry2 += probs2[j, k] * partials2[i, k]
             out_buffer[i, j] = entry1 * entry2
-    return 0
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-cpdef int _scaled_partials(double[:,::1] probs1, double[:,::1] probs2, double[:,::1] partials1,
-                    double[:,::1] partials2, double[::1] scale_buffer, double[:,::1] out_buffer) nogil:
-    """ Cython implementation of Eq (2), Yang (2000) """
-    cdef size_t i, j, k, lmaxi # position where lmax was found
-    cdef double entry1, entry2, l, lmax
-    sites = partials1.shape[0]
-    states = partials1.shape[1]
-    for i in xrange(sites):
-        lmax = 0
-        for j in xrange(states):
-            entry1 = 0
-            entry2 = 0
-            for k in xrange(states):
-                entry1 += probs1[j, k] * partials1[i, k]
-                entry2 += probs2[j, k] * partials2[i, k]
-            l = entry1 * entry2
-            if l > lmax: 
-                lmax = l
-                lmaxi = j
-            out_buffer[i, j] = l
-        for k in xrange(states):
-            if lmax < 1e-300:  # Numerical stability - do what paml does, c.f. treesub.c NodeScale function
-                if k == lmaxi:
-                    out_buffer[i, k] = 1
-                else:
-                    out_buffer[i, k] = 0
-            else:
-                out_buffer[i, k] /= lmax
-        if lmax < 1e-300:
-            scale_buffer[i] = -800 # PAML source code says "this is problematic?"
-        else:
-            scale_buffer[i] = log(lmax)
+            if product > SCALE_THRESHOLD:
+                do_scaling = 0 # only scale when all values are below threshold
+        if do_scaling:
+            for j in xrange(states):
+                out_buffer[i, j] /= SCALE_THRESHOLD
+                scale_buffer[j] += 1 # record this site was scaled once
     return 0
 
 @cython.boundscheck(False)
@@ -143,7 +117,7 @@ cpdef int _single_site_lik_derivs(double[:,::1] evecs, double[::1] evals, double
         fp += pi[a] * apbuf * partials_a[a]
         f2p += pi[a] * a2pbuf * partials_a[a]
     if f < 1e-320: # numerical stability issues, clamp to a loggable value
-        f = 1e-320
+        f = 1e-320 # but this should never happend
     out[0] = f
     out[1] = fp
     out[2] = f2p
@@ -155,7 +129,7 @@ cpdef int _single_site_lik(double[:,::1] evecs, double[::1] evals, double[::1,:]
                            double[::1] pi, double t, double[::1] partials_a,
                            double[::1] partials_b, double[::1] out) nogil:
     """
-    Compute sitewise values of log-likelihood
+    Compute sitewise values of likelihood
     """
     cdef size_t i, j, k
     cdef double f, s, sb
@@ -209,6 +183,9 @@ cpdef int _sitewise_lik(double[:,::1] evecs, double[::1] evals, double[::1,:] iv
         _single_site_lik(evecs, evals, ivecs, pi, t, partials_a[site], partials_b[site], out[site])
     return 0
 
+cpdef int _test():
+    printf("Something something %d\n", 25)
+
 def likvec_1desc(probs, partials):
     """
     Compute the vector of partials for a single descendant
@@ -225,7 +202,7 @@ def likvec_1desc(probs, partials):
          r)
     return r
 
-def likvec_2desc(probs1, probs2, partials1, partials2):
+def likvec_2desc(probs1, probs2, partials1, partials2, scale_buffer):
     """
     Compute the product of vectors of partials for two descendants,
     i.e. the partials for a node with two descendants
@@ -233,22 +210,9 @@ def likvec_2desc(probs1, probs2, partials1, partials2):
     """
     if not partials1.shape == partials2.shape or not probs1.shape == probs2.shape: raise ValueError('Mismatched arrays')
     sites, states = partials1.shape
-    r = np.empty((sites,states))
-    _partials(probs1, probs2, partials1, partials2, r)
-    return r
-
-def likvec_2desc_scaled(probs1, probs2, partials1, partials2):
-    """
-    Compute the product of vectors of partials for two descendants,
-    i.e. the partials for a node with two descendants
-    Equation (2) from Yang (2000)
-    """
-    if not partials1.shape == partials2.shape or not probs1.shape == probs2.shape: raise ValueError('Mismatched arrays')
-    sites, states = partials1.shape
-    r = np.empty((sites,states))
-    s = np.empty(sites)
-    _scaled_partials(probs1, probs2, partials1, partials2, s, r)
-    return r, s
+    out_buffer = np.empty((sites,states))
+    _partials(probs1, probs2, partials1, partials2, scale_buffer, out_buffer)
+    return out_buffer
 
 def sitewise_lik_derivs(evecs, evals, ivecs, freqs, t, partials_a, partials_b):
     sites = partials_a.shape[0]

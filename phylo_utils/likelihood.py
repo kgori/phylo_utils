@@ -28,33 +28,100 @@ class Leaf(object):
         self.partials = np.ascontiguousarray(partials, dtype=np.double)
 
 
-class LnlModel(object):
+class NodeLikelihood(object):
     """
     Attaches to a node. Calculates and stores partials (conditional likelihood vectors),
     and transition probabilities.
     """
-    def __init__(self, transmat):
-        self.transmat = transmat
+    def __init__(self, transition_matrix=None):
+        """ If this is a leaf, the transition matrix can be None """
+        self.transition_matrix = transition_matrix
         self.partials = None
-        self.sitewise = None
-        self.scale_buffer = None
 
     def update_transition_probabilities(self, len1, len2):
-        self.probs1 = self.transmat.get_p_matrix(len1)
-        self.probs2 = self.transmat.get_p_matrix(len2)
+        self.probs1 = self.transition_matrix.get_p_matrix(len1)
+        self.probs2 = self.transition_matrix.get_p_matrix(len2)
 
     def set_partials(self, partials):
         """ Set the partials at this node """
         self.partials = np.ascontiguousarray(partials)
 
-    def compute_partials(self, lnlmodel1, lnlmodel2, scale=False):
-        """ Update partials at this node """
-        if scale:
-            self.partials, self.scale_buffer = likcalc.likvec_2desc_scaled(self.probs1, self.probs2, lnlmodel1.partials, lnlmodel2.partials)
-        else:
-            self.partials = likcalc.likvec_2desc(self.probs1, self.probs2, lnlmodel1.partials, lnlmodel2.partials)
+    def compute_partials(self, node_lik1, node_lik2, scale_buffer):
+        """ Update partials at this node, and update the scale buffer """
+        self.partials = likcalc.likvec_2desc(self.probs1, self.probs2, node_lik1.partials, node_lik2.partials, scale_buffer)
 
-    def compute_edge_sitewise_likelihood(self, lnlmodel, brlen, derivatives=False):
+
+class LikelihoodCalculator(object):
+    """
+    Maintains a set of nodes that can do likelihood calculation on a tree
+    The tree data structure is maintained elsewhere - the calculation
+    uses a traversal descriptor and vector of edge lengths
+    """
+
+    def __init__(self, transition_matrix, partials_dict, weight=1.0):
+        self.weight = weight # used in mixture models
+        self.leaf_models = []
+        self.leaf_map = {}
+        for (i, (leafname, partials)) in enumerate(partials_dict.items()):
+            model = NodeLikelihood()
+            model.set_partials(partials)
+            self.leaf_models.append(model)
+            self.leaf_map[leafname] = i
+
+        nleaves = len(partials_dict)
+        nnodes = 2 * nleaves - 1
+        nedges = nnodes - 1
+        self.inner_models = []
+        for _ in xrange(self.nleaves):
+            self.inner_models.append(NodeLikelihood(transition_matrix))
+
+        self.nsites = partials_dict.values()[0].shape[0]
+        self.transition_matrix = transition_matrix
+        self.scale_buffer = np.zeros(self.nsites, dtype=np.intc)
+        self.postordertraversal = -np.ones((nnodes, 4), dtype=np.intc) # 3 columns - left_descendant, right_descendant, parent, edge_index
+        self.preordertraversal = np.zeros((1+2*(nnodes-nleaves-1), 4))
+
+def tree_to_traversal(tree, nnodes, nleaves, scale=1.0):
+    """ Generate a traversal descriptor and edge lengths from a tree """
+    postordertraversal = -np.ones((nnodes, 4), dtype=np.intc) # 3 columns - left_descendant, right_descendant, parent, edge_index
+    preordertraversal = np.zeros((1+2*(nnodes-nleaves-1), 4), dtype=np.intc) # 1 row for root node, 2 for each other internal node; 4 cols = node index [col1], location of partials to update from [col2, col3], edge to optimise [col4]
+    edge_lengths = np.zeros(nnodes)
+    root_index = 0
+    for i, node in enumerate(tree.postorder_node_iter()):
+        node.index = i
+        if node.is_leaf():
+            postordertraversal[i][0] = postordertraversal[i][1] = -1
+        else:
+            ch1, ch2 = node.child_nodes()
+            postordertraversal[i][0] = ch1.index
+            postordertraversal[i][1] = ch2.index
+            postordertraversal[ch1.index][2] = node.index
+            postordertraversal[ch2.index][2] = node.index
+        postordertraversal[i][3] = i
+        edge_lengths[i] = node.edge.length if node.edge.length else 0
+
+    for i, node in enumerate(tree.preorder_internal_node_iter()):
+        ch1, ch2 = node.child_nodes()
+        if i == 0:
+            preordertraversal[i][0] = node.index
+            preordertraversal[i][1] = ch1.index
+            preordertraversal[i][2] = ch2.index
+            preordertraversal[i][3] = ch1.index
+        else:
+            preordertraversal[2*i-1][0] = node.index
+            preordertraversal[2*i-1][1] = node.parent_node.index
+            preordertraversal[2*i-1][2] = ch1.index
+            preordertraversal[2*i-1][3] = ch2.index
+            preordertraversal[2*i][0] = node.index
+            preordertraversal[2*i][1] = node.parent_node.index
+            preordertraversal[2*i][2] = ch2.index
+            preordertraversal[2*i][3] = ch1.index
+    return postordertraversal, preordertraversal, edge_lengths
+
+    def clear_traversal():
+        pass
+
+    def compute_root_sitewise_likelihood(self, lnlmodel, brlen, derivatives=False):
         """ Calculate the likelihood with this node at root - 
         returns array of [f, f', f''] values, where fs are unscaled unlogged likelihoods, and
         f' and f'' are unconverted partial derivatives.
@@ -66,7 +133,7 @@ class LnlModel(object):
             self.sitewise = likcalc.sitewise_lik(evecs, evals, ivecs, self.transmat.freqs, brlen, self.partials, lnlmodel.partials)
 
     def compute_likelihood(self, lnlmodel, brlen, derivatives=False, accumulated_scale_buffer=None):
-        self.compute_edge_sitewise_likelihood(lnlmodel, brlen, derivatives)
+        self.compute_root_sitewise_likelihood(lnlmodel, brlen, derivatives)
         f = self.sitewise[:, 0]
         if accumulated_scale_buffer is not None:
             lnl = (np.log(f) + accumulated_scale_buffer).sum()
@@ -87,7 +154,7 @@ class RunOnTree(object):
         # Initialise leaves
         self.leaf_models = {}
         for (leafname, partials) in partials_dict.items():
-            model = LnlModel(transition_matrix)
+            model = NodeLikelihood(transition_matrix)
             model.set_partials(partials)
             self.leaf_models[leafname] = model
 
@@ -115,7 +182,7 @@ class RunOnTree(object):
         for node in self.tree.postorder_internal_node_iter():
             self.internal_node_counter += 1
             children = node.child_nodes()
-            node.model = LnlModel(self.tm)
+            node.model = NodeLikelihood(self.tm)
             l1, l2 = [ch.edge.length for ch in children]
             node.model.update_transition_probabilities(l1,l2)
             model1, model2 = [ch.model for ch in node.child_nodes()]
@@ -199,7 +266,7 @@ class OptWrapper(object):
     Wrapper for use with scipy optimiser (e.g. brenth/brentq)
     """
     def __init__(self, tm, partials1, partials2, initial_brlen=1.0):
-        self.root = LnlModel(tm)
+        self.root = NodeLikelihood(tm)
         self.leaf = Leaf(partials2)
         self.root.set_partials(partials1)
         self.updated = None
