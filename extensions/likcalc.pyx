@@ -56,8 +56,8 @@ cpdef int _partials(double[:,::1] probs1, double[:,::1] probs2, double[:,::1] pa
     """ Cython implementation of Eq (2), Yang (2000) """
     cdef size_t i, j, k
     cdef double entry1, entry2
-    sites = partials1.shape[0]
-    states = partials1.shape[1]
+    cdef size_t sites = partials1.shape[0]
+    cdef size_t states = partials1.shape[1]
     for i in xrange(sites):
         for j in xrange(states):
             entry1 = 0
@@ -75,8 +75,8 @@ cpdef int _scaled_partials(double[:,::1] probs1, double[:,::1] probs2, double[:,
     """ Cython implementation of Eq (2), Yang (2000) """
     cdef size_t i, j, k, lmaxi # position where lmax was found
     cdef double entry1, entry2, l, lmax
-    sites = partials1.shape[0]
-    states = partials1.shape[1]
+    cdef size_t sites = partials1.shape[0]
+    cdef size_t states = partials1.shape[1]
     for i in xrange(sites):
         lmax = 0
         for j in xrange(states):
@@ -106,42 +106,34 @@ cpdef int _scaled_partials(double[:,::1] probs1, double[:,::1] probs2, double[:,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef int _single_site_lik_derivs(double[:,::1] evecs, double[::1] evals, double[::1,:] ivecs, 
-                                  double[::1] pi, double t, 
-                                  double[::1] partials_a, double[::1] partials_b,
+cpdef int _single_site_lik_derivs(double[:,::1] probs, double[:,::1] dprobs, double[:,::1] d2probs, 
+                                  double[::1] pi, double[::1] partials_a, double[::1] partials_b,
                                   double[::1] out) nogil:
     """
     Compute sitewise values of log-likelihood and derivatives 
     - equations (10) & (11) from Yang (2000)
     """
-    cdef size_t w, a, b, k  # loop indices
+    cdef size_t a, b  # loop indices
     cdef double f, fp, f2p  # values to return
-    cdef double abuf, apbuf, a2pbuf, bbuf, bpbuf, b2pbuf, tmp1, tmp2  # buffers store partial results of sums
-    states = partials_a.shape[0]
+    cdef double abuf, apbuf, a2pbuf# buffers store partial results of sums
+    cdef size_t states = partials_a.shape[0]
 
     f = 0
     fp = 0
     f2p = 0
+
     for a in xrange(states):
         abuf = 0
         apbuf = 0
         a2pbuf = 0
         for b in xrange(states):
-            bbuf = 0
-            bpbuf = 0
-            b2pbuf = 0
-            for k in xrange(states):
-                tmp1 = evecs[a, k] * ivecs[k, b] * exp(evals[k]*t)
-                tmp2 = tmp1 * evals[k]
-                bbuf += tmp1
-                bpbuf += tmp2
-                b2pbuf += tmp2 * evals[k]
-            abuf += bbuf * partials_b[b]
-            apbuf += bpbuf * partials_b[b]
-            a2pbuf += b2pbuf * partials_b[b]
-        f += pi[a] * abuf * partials_a[a]
-        fp += pi[a] * apbuf * partials_a[a]
-        f2p += pi[a] * a2pbuf * partials_a[a]
+            abuf += probs[a, b] * partials_b[b]
+            apbuf += dprobs[a, b] * partials_b[b]
+            a2pbuf += d2probs[a, b] * partials_b[b]
+        f += pi[a] * partials_a[a] * abuf
+        fp += pi[a] * partials_a[a] * apbuf
+        f2p += pi[a] * partials_a[a] * a2pbuf
+
     if f < 1e-320: # numerical stability issues, clamp to a loggable value
         f = 1e-320
     out[0] = f
@@ -151,25 +143,22 @@ cpdef int _single_site_lik_derivs(double[:,::1] evecs, double[::1] evals, double
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef int _single_site_lik(double[:,::1] evecs, double[::1] evals, double[::1,:] ivecs, 
-                           double[::1] pi, double t, double[::1] partials_a,
+cpdef int _single_site_lik(double[:,::1] probs, 
+                           double[::1] pi, double[::1] partials_a,
                            double[::1] partials_b, double[::1] out) nogil:
     """
     Compute sitewise values of log-likelihood
     """
-    cdef size_t i, j, k
-    cdef double f, s, sb
-    states = partials_a.shape[0]
+    cdef size_t a, b
+    cdef double f, abuf
+    cdef size_t states = partials_a.shape[0]
 
     f = 0
     for a in xrange(states):
-        sb = 0
+        abuf = 0
         for b in xrange(states):
-            s = 0
-            for k in xrange(states):
-                s += evecs[a, k] * ivecs[k, b] * exp(evals[k]*t)
-            sb += s * partials_b[b]
-        f += pi[a] * sb * partials_a[a]
+            abuf += probs[a, b] * partials_b[b]
+        f += pi[a] * partials_a[a] * abuf
     if f < 1e-320: # numerical stability issues, clamp to a loggable value
         f = 1e-320
     out[0] = f
@@ -177,36 +166,35 @@ cpdef int _single_site_lik(double[:,::1] evecs, double[::1] evals, double[::1,:]
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef int _sitewise_lik_derivs(double[:,::1] evecs, double[::1] evals, double[::1,:] ivecs, 
-                               double[::1] pi, double t, 
-                               double[:,::1] partials_a, double[:,::1] partials_b,
+cpdef int _sitewise_lik_derivs(double[:,::1] probs, double[:,::1] dprobs, double[:,::1] d2probs, 
+                               double[::1] pi, double[:,::1] partials_a, double[:,::1] partials_b,
                                double[:,::1] out) nogil:
     """
     Compute sitewise values of log-likelihood and derivatives 
     - equations (10) & (11) from Yang (2000)
     """
     cdef size_t site  # loop indices
-    sites = partials_a.shape[0]
-    states = partials_a.shape[1]
+    cdef size_t sites = partials_a.shape[0]
+    cdef size_t states = partials_a.shape[1]
 
     for site in xrange(sites):
-        _single_site_lik_derivs(evecs, evals, ivecs, pi, t, partials_a[site], partials_b[site], out[site])
+        _single_site_lik_derivs(probs, dprobs, d2probs, pi, partials_a[site], partials_b[site], out[site])
     return 0
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef int _sitewise_lik(double[:,::1] evecs, double[::1] evals, double[::1,:] ivecs, 
-                        double[::1] pi, double t, double[:,::1] partials_a,
+cpdef int _sitewise_lik(double[:,::1] probs, 
+                        double[::1] pi, double[:,::1] partials_a,
                         double[:,::1] partials_b, double[:,::1] out) nogil:
     """
     Compute sitewise values of log-likelihood - equation (10) from Yang (2000)
     """
     cdef size_t site
-    sites = partials_a.shape[0]
-    states = partials_a.shape[1]
+    cdef size_t sites = partials_a.shape[0]
+    cdef size_t states = partials_a.shape[1]
 
     for site in xrange(sites):
-        _single_site_lik(evecs, evals, ivecs, pi, t, partials_a[site], partials_b[site], out[site])
+        _single_site_lik(probs, pi, partials_a[site], partials_b[site], out[site])
     return 0
 
 def likvec_1desc(probs, partials):
@@ -250,14 +238,14 @@ def likvec_2desc_scaled(probs1, probs2, partials1, partials2):
     _scaled_partials(probs1, probs2, partials1, partials2, s, r)
     return r, s
 
-def sitewise_lik_derivs(evecs, evals, ivecs, freqs, t, partials_a, partials_b):
+def sitewise_lik_derivs(probs, dprobs, d2probs, freqs, partials_a, partials_b):
     sites = partials_a.shape[0]
     r = np.empty((sites, 3))
-    _sitewise_lik_derivs(evecs, evals, ivecs, freqs, t, partials_a, partials_b, r)
+    _sitewise_lik_derivs(probs, dprobs, d2probs, freqs, partials_a, partials_b, r)
     return r
 
-def sitewise_lik(evecs, evals, ivecs, freqs, t, partials_a, partials_b):
+def sitewise_lik(probs, freqs, partials_a, partials_b):
     sites = partials_a.shape[0]
     r = np.empty((sites, 1))
-    _sitewise_lik(evecs, evals, ivecs, freqs, t, partials_a, partials_b, r)
+    _sitewise_lik(probs, freqs, partials_a, partials_b, r)
     return r
