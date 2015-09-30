@@ -59,11 +59,14 @@ class LnlModel(object):
         returns array of [f, f', f''] values, where fs are unscaled unlogged likelihoods, and
         f' and f'' are unconverted partial derivatives.
         Logging, scaling and conversion are done in compute_likelihood """
-        evecs, evals, ivecs = self.transmat.eigen.values
+        probs = self.transmat.get_p_matrix(brlen)
+
         if derivatives:
-            self.sitewise = likcalc.sitewise_lik_derivs(evecs, evals, ivecs, self.transmat.freqs, brlen, self.partials, lnlmodel.partials)
+            dprobs = self.transmat.get_dp_matrix(brlen)
+            d2probs = self.transmat.get_d2p_matrix(brlen)
+            self.sitewise = likcalc.sitewise_lik_derivs(probs, dprobs, d2probs, self.transmat.freqs, self.partials, lnlmodel.partials)
         else:
-            self.sitewise = likcalc.sitewise_lik(evecs, evals, ivecs, self.transmat.freqs, brlen, self.partials, lnlmodel.partials)
+            self.sitewise = likcalc.sitewise_lik(probs, self.transmat.freqs, self.partials, lnlmodel.partials)
 
     def compute_likelihood(self, lnlmodel, brlen, derivatives=False, accumulated_scale_buffer=None):
         self.compute_edge_sitewise_likelihood(lnlmodel, brlen, derivatives)
