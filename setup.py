@@ -13,8 +13,6 @@ ext = Extension("phylo_utils.likcalc",
                 include_dirs = [numpy.get_include()],
                )
 
-print find_packages()
-
 setup(cmdclass={'build_ext':build_ext},
       name="phylo_utils",
       author='Kevin Gori',
