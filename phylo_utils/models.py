@@ -9,6 +9,7 @@ class Model(object):
     _rates = None
     _freqs = None
     _size = None
+    _states = None
 
     @property
     def name(self):
@@ -25,7 +26,10 @@ class Model(object):
     @property
     def size(self):
         return self._size
-    
+
+    @property
+    def states(self):
+        return self._states
 
 
 def check_frequencies(freqs, length):
@@ -78,6 +82,7 @@ fixed_equal_nucleotide_frequencies.setflags(write=False)
 class ProteinModel(Model):
     _name = 'GenericProtein'
     _size = 20
+    _states = ['A', 'R', 'N', 'D', 'C', 'Q', 'E', 'G', 'H', 'I', 'L', 'K', 'M', 'F', 'P', 'S', 'T', 'W', 'Y', 'V']
     def __init__(self, rates, freqs):
         self._rates = check_rates(rates, self.size)
         self._freqs = check_frequencies(freqs, self.size)
@@ -96,6 +101,7 @@ class LG(ProteinModel):
 class GTR(Model):
     _name = 'GTR'
     _size = 4
+    _states = ['T', 'C', 'A', 'G']
     def __init__(self, rates=None, freqs=None, reorder=False):
         """ reorder=True indicates that the input rates and frequencies 
         are given in column order ACGT, and need to be reordered 
@@ -130,6 +136,7 @@ class K80(Model):
     _name = 'K80'
     _size = 4
     _freqs = fixed_equal_nucleotide_frequencies.copy()
+    _states = ['T', 'C', 'A', 'G']
     def __init__(self, kappa=None):
         if kappa is None:
             kappa = 2
@@ -140,8 +147,8 @@ class K80(Model):
 class DNAModel(Model):
     _name = 'GenericDNA'
     _size = 4
+    _states = ['T', 'C', 'A', 'G']
     def __init__(self, rates, freqs):
         self._rates = check_rates(rates, self.size)
         self._freqs = check_frequencies(freqs, self.size)
-
 

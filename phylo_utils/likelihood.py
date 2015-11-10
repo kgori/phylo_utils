@@ -1,6 +1,6 @@
 import numpy as np
-import likcalc
-from markov import TransitionMatrix
+from . import likcalc
+from .markov import TransitionMatrix
 import dendropy as dpy
 
 def setup_logger():

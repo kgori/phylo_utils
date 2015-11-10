@@ -1,4 +1,4 @@
-import likelihood
-import markov
-import models
-from seq_to_partials import seq_to_partials
+from . import likelihood
+from . import markov
+from . import models
+from .seq_to_partials import seq_to_partials

@@ -13,7 +13,7 @@ ext = Extension("phylo_utils.likcalc",
                 include_dirs = [numpy.get_include()],
                )
 
-print find_packages()
+print(find_packages())
 
 setup(cmdclass={'build_ext':build_ext},
       name="phylo_utils",
@@ -21,7 +21,7 @@ setup(cmdclass={'build_ext':build_ext},
       author_email='kgori@ebi.ac.uk',
       description='Phylogenetics calculations in python',
       url='',
-      version="0.0.3",
+      version="0.0.4",
       ext_modules = [ext],
       install_requires = ['cython', 'numpy', 'dendropy'],
       packages=find_packages(),
