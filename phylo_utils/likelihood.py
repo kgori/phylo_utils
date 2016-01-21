@@ -86,7 +86,7 @@ class LnlModel(object):
 
 
 class RunOnTree(object):
-    def __init__(self, transition_matrix, partials_dict, scale_freq=20):
+    def __init__(self, transition_matrix, partials_dict):
         # Initialise leaves
         self.leaf_models = {}
         for (leafname, partials) in partials_dict.items():
@@ -96,9 +96,7 @@ class RunOnTree(object):
 
         self.nsites = partials_dict.values()[0].shape[0]
         self.tm = transition_matrix
-        self.internal_node_counter = 0
         self.accumulated_scale_buffer = None
-        self.scale_freq = scale_freq
 
     def set_tree(self, tree):
         #self.tree = dpy.Tree.get_from_string(tree, 'newick', preserve_underscores=True)
@@ -113,26 +111,26 @@ class RunOnTree(object):
             leaf.model.transmat = tm
 
     def run(self, derivatives=False):
-        self.internal_node_counter = 0
         self.accumulated_scale_buffer = np.zeros(self.nsites)
         for node in self.tree.postorder_internal_node_iter():
-            self.internal_node_counter += 1
             children = node.child_nodes()
             node.model = LnlModel(self.tm)
             l1, l2 = [ch.edge.length for ch in children]
             node.model.update_transition_probabilities(l1,l2)
             model1, model2 = [ch.model for ch in node.child_nodes()]
-            if self.internal_node_counter % self.scale_freq == 0 and not node == self.tree.seed_node:
-                node.model.compute_partials(model1, model2, True)
+            node.model.compute_partials(model1, model2, True)
+            if node is not self.tree.seed_node:
                 self.accumulated_scale_buffer += node.model.scale_buffer
-            else:
-                node.model.compute_partials(model1, model2, False)
         ch1, ch2 = self.tree.seed_node.child_nodes()[:2]
         return ch1.model.compute_likelihood(ch2.model, ch1.edge.length + ch2.edge_length, derivatives, self.accumulated_scale_buffer)
 
     def get_sitewise_likelihoods(self):
         ch = self.tree.seed_node.child_nodes()[0]
-        return np.log(ch.model.sitewise[:, 0]) + self.accumulated_scale_buffer
+        return np.log(ch.model.sitewise[:, 0]) + self.accumulated_scale_buffer * likcalc.get_log_scale_value()
+
+    def get_sitewise_fval(self):
+        ch = self.tree.seed_node.child_nodes()[0]
+        return ch.model.sitewise[:, 0]
 
 
 class Mixture(object):
@@ -166,10 +164,10 @@ class GammaMixture(Mixture):
         for runner in self.runners:
             runner.update_transition_matrix(tm)
 
-    def init_models(self, tm, partials_dict, scale_freq=20):
+    def init_models(self, tm, partials_dict):
         self.runners = []
         for cat in xrange(self.ncat):
-            runner = RunOnTree(tm, partials_dict, scale_freq)
+            runner = RunOnTree(tm, partials_dict)
             self.runners.append(runner)
 
     def set_tree(self, tree):
@@ -190,11 +188,32 @@ class GammaMixture(Mixture):
             swlnls[:,cat] = self.runners[cat].get_sitewise_likelihoods()
         return swlnls
 
-    def get_likelihood(self):
+    def get_scale_bufs(self):
+        scale_bufs = np.array([model.accumulated_scale_buffer for model in self.runners]).T
+        return scale_bufs
+
+    def get_sitewise_fvals(self):
+        swfvals = np.empty((self.runners[0].nsites, self.ncat))
+        for cat in xrange(self.ncat):
+            swfvals[:,cat] = self.runners[cat].get_sitewise_fval()
+        return swfvals
+
+    def get_sitewise_likelihoods(self):
         self.run()
-        sw_lnls_per_class = self.get_sitewise_likelihoods()
-        sw_lnls = self.mix_likelihoods(sw_lnls_per_class)
-        return sw_lnls.sum()  
+        sw_fval_per_class = self.get_sitewise_fvals() * self.weights
+        scale_bufs = self.get_scale_bufs()
+        scale_bufs_max = scale_bufs.max(1)
+        todo = scale_bufs_max[:,np.newaxis] - scale_bufs
+
+        # get everything on same scale
+        scaled_fvals = ((sw_fval_per_class / likcalc.get_scale_threshold()**todo)).sum(1)
+
+        # apply scaling
+        sw_lnls = np.log(scaled_fvals) + scale_bufs_max * likcalc.get_log_scale_value()
+        return sw_lnls
+
+    def get_likelihood(self):
+        return self.get_sitewise_likelihoods().sum()
 
 
 class OptWrapper(object):
