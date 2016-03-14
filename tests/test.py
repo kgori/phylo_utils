@@ -1,7 +1,7 @@
 from phylo_utils.seq_to_partials import dna_charmap, protein_charmap, seq_to_partials
 from phylo_utils.models import K80
 from phylo_utils.markov import TransitionMatrix
-from phylo_utils.likelihood import optimise, GammaMixture, RunOnTree
+from phylo_utils.likelihood import optimise, GammaMixture, LnlModel
 import numpy as np
 #####################################
 # Pairwise distance optimiser demo:
@@ -37,7 +37,7 @@ partials_dict = {'1': partials_1,
 
 t = '(((1:0.2,2:0.2)7:0.1,3:0.2)6:0.1,(4:0.2,5:0.2)8:0.1)0;'
 t = '((1:0.2,2:0.2):0.1,3:0.2,(4:0.2,5:0.2):0.2);'
-runner = RunOnTree(tm, partials_dict)
+runner = LnlModel(tm, partials_dict)
 runner.set_tree(t)
 print runner.run(True)
 print runner.get_sitewise_likelihoods()

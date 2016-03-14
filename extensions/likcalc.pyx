@@ -110,7 +110,7 @@ cpdef int _scaled_partials(double[:,::1] probs1, double[:,::1] probs2, double[:,
                 out_buffer[i, k] /= SCALE_THRESHOLD
             scale_buffer[i] = 1
 
-    return 0
+    return do_scaling
 
 cpdef int _single_site_lik_derivs(double[:,::1] probs, double[:,::1] dprobs, double[:,::1] d2probs,
                                   double[::1] pi, double[::1] partials_a, double[::1] partials_b,
@@ -158,6 +158,7 @@ cpdef int _single_site_lik(double[:,::1] probs,
     cdef size_t a, b
     cdef double f, abuf
     cdef size_t states = partials_a.shape[0]
+    cdef int retval = 0
 
     f = 0
     for a in xrange(states):
@@ -167,8 +168,9 @@ cpdef int _single_site_lik(double[:,::1] probs,
         f += pi[a] * partials_a[a] * abuf
     if f < 1e-320: # numerical stability issues, clamp to a loggable value
         f = 1e-320 # (but this should never be needed with proper scaling)
+        retval = 1
     out[0] = f
-    return 0
+    return 1
 
 cpdef int _sitewise_lik_derivs(double[:,::1] probs, double[:,::1] dprobs, double[:,::1] d2probs,
                                double[::1] pi, double[:,::1] partials_a, double[:,::1] partials_b,
@@ -297,14 +299,16 @@ def sitewise_lik_derivs(probs, dprobs, d2probs, freqs, partials_a, partials_b):
     sites = partials_a.shape[0]
     r = np.empty((sites, 3))
     check = _sitewise_lik_derivs(probs, dprobs, d2probs, freqs, partials_a, partials_b, r)
-    if check != 0:
+    if check == 1:
         print 'Scaling error encountered! Used hack!'
     return r
 
 def sitewise_lik(probs, freqs, partials_a, partials_b):
     sites = partials_a.shape[0]
     r = np.empty((sites, 1))
-    _sitewise_lik(probs, freqs, partials_a, partials_b, r)
+    check = _sitewise_lik(probs, freqs, partials_a, partials_b, r)
+    if check == 1:
+        print 'Scaling error encountered! Used hack!'
     return r
 
 def get_scale_threshold():

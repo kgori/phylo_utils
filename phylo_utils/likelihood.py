@@ -28,7 +28,7 @@ class Leaf(object):
         self.partials = np.ascontiguousarray(partials, dtype=np.double)
 
 
-class LnlModel(object):
+class LnlNode(object):
     """
     Attaches to a node. Calculates and stores partials (conditional likelihood vectors),
     and transition probabilities.
@@ -72,7 +72,7 @@ class LnlModel(object):
         self.compute_edge_sitewise_likelihood(lnlmodel, brlen, derivatives)
         f = self.sitewise[:, 0]
         if accumulated_scale_buffer is not None:
-            lnl = (np.log(f) + accumulated_scale_buffer).sum()
+            lnl = (np.log(f) + accumulated_scale_buffer * likcalc.get_log_scale_value()).sum()
         else:
             lnl = np.log(f).sum()
         if derivatives:
@@ -85,16 +85,16 @@ class LnlModel(object):
             return lnl
 
 
-class RunOnTree(object):
+class LnlModel(object):
     def __init__(self, transition_matrix, partials_dict):
         # Initialise leaves
         self.leaf_models = {}
         for (leafname, partials) in partials_dict.items():
-            model = LnlModel(transition_matrix)
+            model = LnlNode(transition_matrix)
             model.set_partials(partials)
             self.leaf_models[leafname] = model
 
-        self.nsites = partials_dict.values()[0].shape[0]
+        self.nsites = next(iter(partials_dict.values())).shape[0]
         self.tm = transition_matrix
         self.accumulated_scale_buffer = None
 
@@ -114,7 +114,7 @@ class RunOnTree(object):
         self.accumulated_scale_buffer = np.zeros(self.nsites)
         for node in self.tree.postorder_internal_node_iter():
             children = node.child_nodes()
-            node.model = LnlModel(self.tm)
+            node.model = LnlNode(self.tm)
             l1, l2 = [ch.edge.length for ch in children]
             node.model.update_transition_probabilities(l1,l2)
             model1, model2 = [ch.model for ch in node.child_nodes()]
@@ -122,7 +122,8 @@ class RunOnTree(object):
             if node is not self.tree.seed_node:
                 self.accumulated_scale_buffer += node.model.scale_buffer
         ch1, ch2 = self.tree.seed_node.child_nodes()[:2]
-        return ch1.model.compute_likelihood(ch2.model, ch1.edge.length + ch2.edge_length, derivatives, self.accumulated_scale_buffer)
+        return ch1.model.compute_likelihood(ch2.model, ch1.edge.length + ch2.edge_length,
+                                            derivatives, self.accumulated_scale_buffer)
 
     def get_sitewise_likelihoods(self):
         ch = self.tree.seed_node.child_nodes()[0]
@@ -141,12 +142,6 @@ class Mixture(object):
         ma = sw_lnls.max(1)[:,np.newaxis]
         wa = sw_lnls + self.logweights
         return np.log(np.exp(wa-ma).sum(1))[:,np.newaxis] + ma
-
-    def mix_likelihoods2(self, sw_lnls):
-        mb = sw_lnls.max(1)[:,np.newaxis]
-        vb = np.exp(sw_lnls - mb)
-        cb = (self.weights * vb)
-        return np.log(cb.sum(1))[:, np.newaxis] + mb
 
 
 class GammaMixture(Mixture):
@@ -167,7 +162,7 @@ class GammaMixture(Mixture):
     def init_models(self, tm, partials_dict):
         self.runners = []
         for cat in xrange(self.ncat):
-            runner = RunOnTree(tm, partials_dict)
+            runner = LnlModel(tm, partials_dict)
             self.runners.append(runner)
 
     def set_tree(self, tree):
@@ -198,22 +193,8 @@ class GammaMixture(Mixture):
             swfvals[:,cat] = self.runners[cat].get_sitewise_fval()
         return swfvals
 
-    def get_sitewise_likelihoods(self):
-        self.run()
-        sw_fval_per_class = self.get_sitewise_fvals() * self.weights
-        scale_bufs = self.get_scale_bufs()
-        scale_bufs_max = scale_bufs.max(1)
-        todo = scale_bufs_max[:,np.newaxis] - scale_bufs
-
-        # get everything on same scale
-        scaled_fvals = ((sw_fval_per_class / likcalc.get_scale_threshold()**todo)).sum(1)
-
-        # apply scaling
-        sw_lnls = np.log(scaled_fvals) + scale_bufs_max * likcalc.get_log_scale_value()
-        return sw_lnls
-
     def get_likelihood(self):
-        return self.get_sitewise_likelihoods().sum()
+        return self.mix_likelihoods(self.get_sitewise_likelihoods()).sum()
 
 
 class OptWrapper(object):
@@ -221,7 +202,7 @@ class OptWrapper(object):
     Wrapper for use with scipy optimiser (e.g. brenth/brentq)
     """
     def __init__(self, tm, partials1, partials2, initial_brlen=1.0):
-        self.root = LnlModel(tm)
+        self.root = LnlNode(tm)
         self.leaf = Leaf(partials2)
         self.root.set_partials(partials1)
         self.updated = None
