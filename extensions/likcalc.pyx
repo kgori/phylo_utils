@@ -84,7 +84,13 @@ cpdef int _scaled_partials(double[:,::1] probs1, double[:,::1] probs2, double[:,
     cdef size_t sites = partials1.shape[0]
     cdef size_t states = partials1.shape[1]
     cdef int do_scaling  # if all values are < SCALE_THRESHOLD, do scaling
+    # The way we decide to do scaling is, for each site, we commit to
+    # do scaling, but change our mind if any value is above the threshold.
+    # If *all* entries are below the threshold, then divide all entries
+    # by the threshold value. The scale buffer keeps count of how many
+    # times this has been done for each site (so it can be undone).
     for i in xrange(sites):
+        do_scaling = 1
         for j in xrange(states):
             entry1 = 0
             entry2 = 0
@@ -92,19 +98,10 @@ cpdef int _scaled_partials(double[:,::1] probs1, double[:,::1] probs2, double[:,
                 entry1 += probs1[j, k] * partials1[i, k]
                 entry2 += probs2[j, k] * partials2[i, k]
             out_buffer[i, j] = entry1 * entry2
-
-        do_scaling = 1
-        for k in xrange(states):
-            # if all entries are < SCALE_THRESHOLD, do scaling
-            if out_buffer[i, k] > SCALE_THRESHOLD:
+            if out_buffer[i, j] > SCALE_THRESHOLD:
                 do_scaling = 0
-                break
 
-        # scaling: if *all* entries are smaller than threshold,
-        #          divide all entries by threshold.
-        #          scale buffer just keeps count of
-        #          number of times scaling is applied,
-        #          instead of values.
+        # scaling
         if do_scaling == 1:
             for k in xrange(states):
                 out_buffer[i, k] /= SCALE_THRESHOLD
