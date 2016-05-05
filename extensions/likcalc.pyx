@@ -2,15 +2,13 @@
 # cython: wraparound=False
 import numpy as np
 cimport numpy as np
-cimport cython
-from libc.math cimport exp, log
-from libc.stdio cimport printf
 from libc.stdlib cimport rand, RAND_MAX
+from libc.math cimport log
 
 __all__ = ['discrete_gamma', 'likvec', 'likvec2']
 
 cdef double SCALE_THRESHOLD = 1.0 / (2.0**128)
-cdef double LOG_SCALE_VALUE = np.log(SCALE_THRESHOLD)
+cdef double LOG_SCALE_VALUE = log(SCALE_THRESHOLD)
 
 cdef extern from "discrete_gamma.h":
     int DiscreteGamma(double* freqK, double* rK, double alpha, double beta, int K, int UseMedian) nogil
@@ -105,7 +103,7 @@ cpdef int _scaled_partials(double[:,::1] probs1, double[:,::1] probs2, double[:,
         if do_scaling == 1:
             for k in xrange(states):
                 out_buffer[i, k] /= SCALE_THRESHOLD
-            scale_buffer[i] = 1
+            scale_buffer[i] = 1  # should this be += 1 ? - no, accumulation is done over the tree
 
     return do_scaling
 
@@ -141,9 +139,9 @@ cpdef int _single_site_lik_derivs(double[:,::1] probs, double[:,::1] dprobs, dou
     if f < 1e-320: # numerical stability issues, clamp to a loggable value
         f = 1e-320 # (but this should never be needed with proper scaling)
         retval = 1
-    out[0] = f
-    out[1] = fp
-    out[2] = f2p
+    out[0] = log(f) # requires scaling
+    out[1] = fp / f # scale free
+    out[2] = ((f * f2p) - (fp * fp)) / (f * f) # scale free
     return retval
 
 cpdef int _single_site_lik(double[:,::1] probs,
@@ -166,7 +164,7 @@ cpdef int _single_site_lik(double[:,::1] probs,
     if f < 1e-320: # numerical stability issues, clamp to a loggable value
         f = 1e-320 # (but this should never be needed with proper scaling)
         retval = 1
-    out[0] = f
+    out[0] = log(f)
     return 1
 
 cpdef int _sitewise_lik_derivs(double[:,::1] probs, double[:,::1] dprobs, double[:,::1] d2probs,
@@ -260,8 +258,7 @@ def likvec_1desc(probs, partials):
     compute this product directly, and be faster
     One half of Equation (2) from Yang (2000)
     """
-    sites, states = partials.shape
-    r = np.empty((sites,states))
+    r = np.empty_like(partials)
     _partials_one_term(probs,
          partials,
          r)
@@ -274,8 +271,7 @@ def likvec_2desc(probs1, probs2, partials1, partials2):
     Equation (2) from Yang (2000)
     """
     if not partials1.shape == partials2.shape or not probs1.shape == probs2.shape: raise ValueError('Mismatched arrays')
-    sites, states = partials1.shape
-    r = np.empty((sites,states))
+    r = np.empty_like(partials1)
     _partials(probs1, probs2, partials1, partials2, r)
     return r
 
@@ -287,7 +283,7 @@ def likvec_2desc_scaled(probs1, probs2, partials1, partials2):
     """
     if not partials1.shape == partials2.shape or not probs1.shape == probs2.shape: raise ValueError('Mismatched arrays')
     sites, states = partials1.shape
-    r = np.empty((sites,states))
+    r = np.empty_like(partials1)
     s = np.zeros(sites, dtype=np.intc)
     _scaled_partials(probs1, probs2, partials1, partials2, s, r)
     return r, s
@@ -313,3 +309,46 @@ def get_scale_threshold():
 
 def get_log_scale_value():
     return LOG_SCALE_VALUE
+
+cdef int _simplex_encode(double[::1] p, double[::1] theta):
+    """
+    Convert vector p (length N) to vector theta (length N-1)
+    p is constrained to sum to 1, theta is not
+    """
+    cdef size_t i, N=p.shape[0]
+    cdef double y=1.0
+    for i in range(N-1):
+        theta[i] = p[i] / y
+        y -= p[i]
+    return 0
+
+def simplex_encode(p):
+    theta = np.zeros(p.size - 1)
+    _simplex_encode(p, theta)
+    return theta
+
+cdef int _simplex_decode(double[::1] theta, double[::1] p):
+    cdef size_t i, N=theta.shape[0]
+    cdef double x=1.0
+    for i in range(N):
+        p[i] = theta[i]*x
+        x *= 1.0 - theta[i]
+    p[N] = x
+    return 0
+
+def simplex_decode(theta):
+    p = np.zeros(theta.size + 1)
+    _simplex_decode(theta, p)
+    return p
+
+def logit(p):
+    return np.log(p/(1-p))
+
+def expit(p):
+    return 1/(1+np.exp(-p))
+
+def transform_params(p):
+    return logit(simplex_encode(p))
+
+def decode_params(q):
+    return simplex_decode(expit(q))

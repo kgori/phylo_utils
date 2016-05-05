@@ -1,25 +1,27 @@
 import numpy as np
 from . import likcalc
-from .markov import TransitionMatrix
 import dendropy as dpy
+
 
 def setup_logger():
     import logging
     logger = logging.getLogger(__name__)
     for handler in logger.handlers:
         logger.removeHandler(handler)
-    ch=logging.StreamHandler()
+    ch = logging.StreamHandler()
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     ch.setFormatter(formatter)
     logger.addHandler(ch)
     logger.setLevel(logging.INFO)
     return logger
 
+
 logger = setup_logger()
 
 
 class Leaf(object):
     """ Object to store partials at a leaf """
+
     def __init__(self, partials):
         self.set_partials(partials)
 
@@ -33,24 +35,26 @@ class LnlNode(object):
     Attaches to a node. Calculates and stores partials (conditional likelihood vectors),
     and transition probabilities.
     """
-    def __init__(self, transmat):
-        self.transmat = transmat
+
+    def __init__(self, subst_model):
+        self.subst_model = subst_model
         self.partials = None
         self.sitewise = None
         self.scale_buffer = None
 
     def update_transition_probabilities(self, len1, len2):
-        self.probs1 = self.transmat.get_p_matrix(len1)
-        self.probs2 = self.transmat.get_p_matrix(len2)
+        self.probs1 = self.subst_model.get_p_matrix(len1)
+        self.probs2 = self.subst_model.get_p_matrix(len2)
 
     def set_partials(self, partials):
         """ Set the partials at this node """
         self.partials = np.ascontiguousarray(partials)
 
-    def compute_partials(self, lnlmodel1, lnlmodel2, scale=False):
+    def compute_partials(self, lnlmodel1, lnlmodel2, scale=True):
         """ Update partials at this node """
         if scale:
-            self.partials, self.scale_buffer = likcalc.likvec_2desc_scaled(self.probs1, self.probs2, lnlmodel1.partials, lnlmodel2.partials)
+            self.partials, self.scale_buffer = likcalc.likvec_2desc_scaled(self.probs1, self.probs2, lnlmodel1.partials,
+                                                                           lnlmodel2.partials)
         else:
             self.partials = likcalc.likvec_2desc(self.probs1, self.probs2, lnlmodel1.partials, lnlmodel2.partials)
 
@@ -59,64 +63,63 @@ class LnlNode(object):
         returns array of [f, f', f''] values, where fs are unscaled unlogged likelihoods, and
         f' and f'' are unconverted partial derivatives.
         Logging, scaling and conversion are done in compute_likelihood """
-        probs = self.transmat.get_p_matrix(brlen)
+        probs = self.subst_model.get_p_matrix(brlen)
 
         if derivatives:
-            dprobs = self.transmat.get_dp_matrix(brlen)
-            d2probs = self.transmat.get_d2p_matrix(brlen)
-            self.sitewise = likcalc.sitewise_lik_derivs(probs, dprobs, d2probs, self.transmat.freqs, self.partials, lnlmodel.partials)
+            dprobs = self.subst_model.get_dp_matrix(brlen)
+            d2probs = self.subst_model.get_d2p_matrix(brlen)
+            self.sitewise = likcalc.sitewise_lik_derivs(probs, dprobs, d2probs, self.subst_model.freqs, self.partials,
+                                                        lnlmodel.partials)
         else:
-            self.sitewise = likcalc.sitewise_lik(probs, self.transmat.freqs, self.partials, lnlmodel.partials)
+            self.sitewise = likcalc.sitewise_lik(probs, self.subst_model.freqs, self.partials, lnlmodel.partials)
 
     def compute_likelihood(self, lnlmodel, brlen, derivatives=False, accumulated_scale_buffer=None):
         self.compute_edge_sitewise_likelihood(lnlmodel, brlen, derivatives)
-        f = self.sitewise[:, 0]
+        swlnl = self.sitewise[:, 0]
         if accumulated_scale_buffer is not None:
-            lnl = (np.log(f) + accumulated_scale_buffer * likcalc.get_log_scale_value()).sum()
+            lnl = (swlnl + accumulated_scale_buffer * likcalc.get_log_scale_value()).sum()
         else:
-            lnl = np.log(f).sum()
+            lnl = swlnl.sum()
         if derivatives:
-            fp = self.sitewise[:, 1]
-            f2p = self.sitewise[:, 2]
-            dlnl = (fp/f).sum()
-            d2lnl = (((f*f2p)-(fp*fp))/(f*f)).sum()
+            dlnl = self.sitewise[:, 1].sum()
+            d2lnl = self.sitewise[:, 2].sum()
             return lnl, dlnl, d2lnl
         else:
             return lnl
 
 
 class LnlModel(object):
-    def __init__(self, transition_matrix, partials_dict):
+    def __init__(self, subst_model, partials_dict):
         # Initialise leaves
         self.leaf_models = {}
         for (leafname, partials) in partials_dict.items():
-            model = LnlNode(transition_matrix)
+            model = LnlNode(subst_model)
             model.set_partials(partials)
             self.leaf_models[leafname] = model
 
         self.nsites = next(iter(partials_dict.values())).shape[0]
-        self.tm = transition_matrix
+        self.subst_model = subst_model
         self.accumulated_scale_buffer = None
 
     def set_tree(self, tree):
-        #self.tree = dpy.Tree.get_from_string(tree, 'newick', preserve_underscores=True)
-        #self.tree.resolve_polytomies() # Require strictly binary tree, including root node
+        # self.tree = dpy.Tree.get_from_string(tree, 'newick', preserve_underscores=True)
+        # self.tree.resolve_polytomies() # Require strictly binary tree, including root node
         self.tree = tree
         for leaf in self.tree.leaf_nodes():
             leaf.model = self.leaf_models[leaf.taxon.label]
 
-    def update_transition_matrix(self, tm):
-        self.tm = tm
+    def update_subst_model(self, subst_model):
+        self.subst_model = subst_model
         for leaf in self.tree.leaf_nodes():
-            leaf.model.transmat = tm
+            leaf.model.subst_model = subst_model
 
     def run(self, derivatives=False):
         self.accumulated_scale_buffer = np.zeros(self.nsites)
         for node in self.tree.postorder_internal_node_iter():
             children = node.child_nodes()
-            node.model = LnlNode(self.tm)
+            node.model = LnlNode(self.subst_model)
             l1, l2 = [ch.edge.length for ch in children]
-            node.model.update_transition_probabilities(l1,l2)
+            node.model.update_transition_probabilities(l1, l2)
             model1, model2 = [ch.model for ch in node.child_nodes()]
             node.model.compute_partials(model1, model2, True)
             if node is not self.tree.seed_node:
@@ -127,47 +130,46 @@ class LnlModel(object):
 
     def get_sitewise_likelihoods(self):
         ch = self.tree.seed_node.child_nodes()[0]
-        return np.log(ch.model.sitewise[:, 0]) + self.accumulated_scale_buffer * likcalc.get_log_scale_value()
+        scaler = np.zeros_like(ch.model.sitewise)
+        scaler[:, 0] = self.accumulated_scale_buffer * likcalc.get_log_scale_value()
+        return ch.model.sitewise + scaler
 
-    def get_sitewise_fval(self):
-        ch = self.tree.seed_node.child_nodes()[0]
-        return ch.model.sitewise[:, 0]
+    # def get_sitewise_fval(self):
+    #     ch = self.tree.seed_node.child_nodes()[0]
+    #     return ch.model.sitewise[:, 0]
 
 
 class Mixture(object):
-    def __init__(self):
-        pass
-
     def mix_likelihoods(self, sw_lnls):
-        ma = sw_lnls.max(1)[:,np.newaxis]
+        ma = sw_lnls.max(1)[:, np.newaxis]
         wa = sw_lnls + self.logweights
-        return np.log(np.exp(wa-ma).sum(1))[:,np.newaxis] + ma
+        return np.log(np.exp(wa - ma).sum(1))[:, np.newaxis] + ma
 
 
 class GammaMixture(Mixture):
     def __init__(self, alpha, ncat):
         self.ncat = ncat
         self.rates = likcalc.discrete_gamma(alpha, ncat)
-        self.weights = np.array([1.0/ncat] * ncat)
+        self.weights = np.array([1.0 / ncat] * ncat)
         self.logweights = np.log(self.weights)
 
     def update_alpha(self, alpha):
         self.rates = likcalc.discrete_gamma(alpha, self.ncat)
         self.set_tree(self.tree)
 
-    def update_transition_matrix(self, tm):
+    def update_substitution_model(self, tm):
         for runner in self.runners:
-            runner.update_transition_matrix(tm)
+            runner.update_subst_model(tm)
 
     def init_models(self, tm, partials_dict):
         self.runners = []
-        for cat in xrange(self.ncat):
+        for cat in range(self.ncat):
             runner = LnlModel(tm, partials_dict)
             self.runners.append(runner)
 
     def set_tree(self, tree):
         self.tree = tree
-        for cat in xrange(self.ncat):
+        for cat in range(self.ncat):
             t = dpy.Tree.get_from_string(tree, 'newick', preserve_underscores=True)
             t.resolve_polytomies()
             t.scale_edges(self.rates[cat])
@@ -179,8 +181,8 @@ class GammaMixture(Mixture):
 
     def get_sitewise_likelihoods(self):
         swlnls = np.empty((self.runners[0].nsites, self.ncat))
-        for cat in xrange(self.ncat):
-            swlnls[:,cat] = self.runners[cat].get_sitewise_likelihoods()
+        for cat in range(self.ncat):
+            swlnls[:, cat] = self.runners[cat].get_sitewise_likelihoods()[:,0]
         return swlnls
 
     def get_scale_bufs(self):
@@ -189,8 +191,8 @@ class GammaMixture(Mixture):
 
     def get_sitewise_fvals(self):
         swfvals = np.empty((self.runners[0].nsites, self.ncat))
-        for cat in xrange(self.ncat):
-            swfvals[:,cat] = self.runners[cat].get_sitewise_fval()
+        for cat in range(self.ncat):
+            swfvals[:, cat] = self.runners[cat].get_sitewise_fval()
         return swfvals
 
     def get_likelihood(self):
@@ -201,6 +203,7 @@ class OptWrapper(object):
     """
     Wrapper for use with scipy optimiser (e.g. brenth/brentq)
     """
+
     def __init__(self, tm, partials1, partials2, initial_brlen=1.0):
         self.root = LnlNode(tm)
         self.leaf = Leaf(partials2)
@@ -224,7 +227,9 @@ class OptWrapper(object):
         return self.d2lnl
 
     def __str__(self):
-        return 'Branch length={}, Variance={}, Likelihood+derivatives = {} {} {}'.format(self.updated, -1/self.d2lnl, self.lnl, self.dlnl, self.d2lnl)
+        return 'Branch length={}, Variance={}, Likelihood+derivatives = {} {} {}'.format(self.updated, -1 / self.d2lnl,
+                                                                                         self.lnl, self.dlnl,
+                                                                                         self.d2lnl)
 
 
 def optimise(likelihood, partials_a, partials_b, min_brlen=0.00001, max_brlen=10, verbose=True):
@@ -232,9 +237,9 @@ def optimise(likelihood, partials_a, partials_b, min_brlen=0.00001, max_brlen=10
     Optimise ML distance between two partials. min and max set brackets
     """
     from scipy.optimize import brenth
-    wrapper = OptWrapper(likelihood, partials_a, partials_b, (min_brlen+max_brlen)/2.)
+    wrapper = OptWrapper(likelihood, partials_a, partials_b, (min_brlen + max_brlen) / 2.)
     brlen = 0.5
-    n=brenth(wrapper.get_dlnl, min_brlen, max_brlen)
+    n = brenth(wrapper.get_dlnl, min_brlen, max_brlen)
     if verbose:
         logger.info(wrapper)
-    return n, -1/wrapper.get_d2lnl(n)
+    return n, -1 / wrapper.get_d2lnl(n)
