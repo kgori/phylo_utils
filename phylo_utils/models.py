@@ -5,14 +5,16 @@ from abc import ABCMeta
 from phylo_utils.data import lg_rates, lg_freqs, wag_rates, wag_freqs, fixed_equal_nucleotide_rates, \
     fixed_equal_nucleotide_frequencies
 
-__all__ = ['LG', 'WAG', 'GTR', 'JC69', 'K80']
+__all__ = ['LG', 'WAG', 'GTR', 'JC69', 'K80', 'F81', 'F84', 'HKY85', 'TN93']
 
+MIN_BRANCH_LENGTH = 1/2**16
+SMALL = 1/2**128
 
 def check_frequencies(freqs, length):
     freqs = np.ascontiguousarray(freqs)
     if len(freqs) != length:
         raise ValueError('Frequencies vector is not the right length (length={})'.format(len(freqs)))
-    if not np.allclose(sum(freqs), 1.0):
+    if not np.allclose(sum(freqs), 1.0, rtol=1e-16):
         raise ValueError('Frequencies do not add to 1.0 within tolerance (sum={})'.format(sum(freqs)))
     return freqs
 
@@ -24,6 +26,24 @@ def check_rates(rates, size):
         raise ValueError('Rate matrix is not symmetrical')
     return rates
 
+def identity(size):
+    mtx = np.zeros((size,size), dtype=np.double) + SMALL
+    mtx.flat[::size+1] = 1 - (SMALL * (size-1))
+    return mtx
+
+def impose_min_probs(mtx):
+    """
+    Ensure no probabilities are less than SMALL
+    Assumes matrix is square and main diagonal
+    is comfortably above zero, both of which
+    are reasonable for phylogenetic models
+    """
+    if np.min(mtx) < SMALL:
+        size = mtx.shape[0]
+        mtx += SMALL
+        mtx.flat[::size+1] -= SMALL * size
+    return mtx
+
 
 class Model(object):
     __metaclass__ = ABCMeta
@@ -32,6 +52,10 @@ class Model(object):
     _freqs = None
     _size = None
     _states = None
+
+    def __init__(self):
+        self.eigen = None
+        self._q_mtx = None
 
     @property
     def name(self):
@@ -53,22 +77,57 @@ class Model(object):
     def states(self):
         return self._states
 
+    def get_q_matrix(self):
+        return self._q_mtx
 
-def get_q_matrix(rates, freqs):
+    def get_p_matrix(self, t):
+        """
+        P = transition probabilities
+        """
+        evecs, evals, ivecs = self.eigen.values
+        return impose_min_probs((evecs * np.exp(evals * t)).dot(ivecs))
+
+    def get_dp_matrix(self, t):
+        """
+        First derivative of P
+        """
+        evecs, evals, ivecs = self.eigen.values
+        return (evecs*evals*np.exp(evals*t)).dot(ivecs)
+
+    def get_d2p_matrix(self, t):
+        """
+        Second derivative of P
+        """
+        evecs, evals, ivecs = self.eigen.values
+        return (evecs*evals*evals*np.exp(evals*t)).dot(ivecs)
+
+
+def compute_q_matrix(rates, freqs):
+    """
+    Computes the instantaneous rate matrix (Q matrix)
+    from substitution rates and equilibrium frequencies.
+    Values are scaled s.t. units are in substitutions per site.
+    """
     q = rates.dot(np.diag(freqs))
     q.flat[::len(freqs)+1] -= q.sum(1)
     q /= (-(np.diag(q)*freqs).sum())
     return q
 
 
-def get_b_matrix(q_matrix, sqrtfreqs):
+def compute_b_matrix(q_matrix, sqrtfreqs):
+    """
+    Computes a matrix (B matrix), similar to Q - i.e. with
+    the same eigenvalues.
+    B is symmetric if Q is reversible, allowing the use of more
+    stable numerical eigen decomposition routines on B than on Q.
+    """
     return np.diag(sqrtfreqs).dot(q_matrix).dot(np.diag(1/sqrtfreqs))
 
 
 def get_eigen(q_matrix, freqs=None):
     if freqs is not None:
         rootf = np.sqrt(freqs)
-        mtx = get_b_matrix(q_matrix, rootf)
+        mtx = compute_b_matrix(q_matrix, rootf)
         evals, r = np.linalg.eigh(mtx)
         evecs = np.diag(1/rootf).dot(r)
         ivecs = r.T.dot(np.diag(rootf))
@@ -103,33 +162,8 @@ class ProteinModel(Model):
     def __init__(self, rates, freqs):
         self._rates = check_rates(rates, self.size)
         self._freqs = check_frequencies(freqs, self.size)
-        self._q_mtx = get_q_matrix(self._rates, self._freqs)
+        self._q_mtx = compute_q_matrix(self._rates, self._freqs)
         self.eigen = Eigen(*get_eigen(self._q_mtx, self._freqs))
-
-    def get_q_matrix(self):
-        return self.q_mtx
-
-    def get_p_matrix(self, t):
-        """
-        P = transition probabilities
-        """
-        # if t < 1e-8: return np.eye(self.eigen.evals.shape[0])
-        evecs, evals, ivecs = self.eigen.values
-        return (evecs*np.exp(evals*t)).dot(ivecs)
-
-    def get_dp_matrix(self, t):
-        """
-        First derivative of P
-        """
-        evecs, evals, ivecs = self.eigen.values
-        return (evecs*evals*np.exp(evals*t)).dot(ivecs)
-
-    def get_d2p_matrix(self, t):
-        """
-        Second derivative of P
-        """
-        evecs, evals, ivecs = self.eigen.values
-        return (evecs*evals*evals*np.exp(evals*t)).dot(ivecs)
 
 
 class LG(ProteinModel):
@@ -140,8 +174,9 @@ class LG(ProteinModel):
             self._freqs = lg_freqs.copy()
         else:
             self._freqs = check_frequencies(freqs, self.size)
-        self._q_mtx = get_q_matrix(self._rates, self._freqs)
+        self._q_mtx = compute_q_matrix(self._rates, self._freqs)
         self.eigen = Eigen(*get_eigen(self._q_mtx, self._freqs))
+
 
 class WAG(ProteinModel):
     _name = 'WAG'
@@ -151,7 +186,7 @@ class WAG(ProteinModel):
             self._freqs = wag_freqs.copy()
         else:
             self._freqs = check_frequencies(freqs, self.size)
-        self._q_mtx = get_q_matrix(self._rates, self._freqs)
+        self._q_mtx = compute_q_matrix(self._rates, self._freqs)
         self.eigen = Eigen(*get_eigen(self._q_mtx, self._freqs))
 
 
@@ -165,28 +200,6 @@ class DNAModel(Model):
 
     def get_q_matrix(self):
         return self._q_mtx
-
-    def get_p_matrix(self, t):
-        """
-        P = transition probabilities
-        """
-        # if t < 1e-8: return np.eye(self.eigen.evals.shape[0])
-        evecs, evals, ivecs = self.eigen.values
-        return (evecs*np.exp(evals*t)).dot(ivecs)
-
-    def get_dp_matrix(self, t):
-        """
-        First derivative of P
-        """
-        evecs, evals, ivecs = self.eigen.values
-        return (evecs*evals*np.exp(evals*t)).dot(ivecs)
-
-    def get_d2p_matrix(self, t):
-        """
-        Second derivative of P
-        """
-        evecs, evals, ivecs = self.eigen.values
-        return (evecs*evals*evals*np.exp(evals*t)).dot(ivecs)
 
 
 class GTR(DNAModel):
@@ -207,9 +220,10 @@ class GTR(DNAModel):
             self._rates = check_rates(self.square_matrix(rates), self.size)
         self._freqs = check_frequencies(freqs, self.size)
         if reorder:
-            self._rates = self._rates[np.array([[3,1,0,2]]), np.array([[3],[1],[0],[2]])]
-            self._freqs = self._freqs[np.array([3,1,0,2])]
-        self._q_mtx = get_q_matrix(self._rates, self._freqs)
+            index = np.array([[3,1,0,2]])
+            self._rates = self._rates[index, index.T]
+            self._freqs = self._freqs[index]
+        self._q_mtx = compute_q_matrix(self._rates, self._freqs)
         self.eigen = Eigen(*get_eigen(self._q_mtx, self._freqs))
 
     def square_matrix(self, uppertri):
@@ -246,6 +260,11 @@ class JC69(DNAModel):
     _name = 'JC69'
     _freqs = fixed_equal_nucleotide_frequencies.copy()
     def __init__(self):
+        mtx = np.array([
+            [0, 1, 1, 1],
+            [1, 0, 1, 1],
+            [1, 1, 0, 1],
+            [1, 1, 1, 0]])
         self._rates = check_rates(mtx, 4)
         self._q_mtx = jc_q_mtx
         self.eigen = Eigen(jc_evecs, jc_evals, jc_ivecs)
@@ -253,7 +272,7 @@ class JC69(DNAModel):
     def get_p_matrix(self, t):
         e1 = 0.25 + 0.75*np.exp(-4*t/3.)
         e2 = 0.25 - 0.25*np.exp(-4*t/3.)
-        return np.array([[e1,e2,e2,e2],[e2,e1,e2,e2],[e2,e2,e1,e2],[e2,e2,e2,e1]])
+        return impose_min_probs(np.array([[e1,e2,e2,e2],[e2,e1,e2,e2],[e2,e2,e1,e2],[e2,e2,e2,e1]]))
 
 
 def tn93_q(pi_t, pi_c, pi_a, pi_g, alpha1, alpha2, beta, scale):
@@ -297,6 +316,7 @@ def tn93_evals(pi_t, pi_c, pi_a, pi_g, alpha1, alpha2, beta, scale):
                                  -(pi_r*alpha2 + pi_y*beta),
                                  -(pi_y*alpha1 + pi_r*beta)], dtype=np.double) / scale
 
+
 class TN93(DNAModel):
     _name = 'TN93'
     def __init__(self, alpha1, alpha2, beta, freqs=None, reorder=False):
@@ -305,7 +325,7 @@ class TN93(DNAModel):
         else:
             freqs = check_frequencies(freqs, 4)
         self._freqs = freqs
-        scale = tn93_scale(*freqs, alpha1, alpha2, beta)
+        scale = tn93_scale(*freqs, alpha1=alpha1, alpha2=alpha2, beta=beta)
         mtx = np.array([
             [0, alpha1, beta, beta],
             [alpha1, 0, beta, beta],

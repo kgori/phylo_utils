@@ -1,7 +1,7 @@
 from __future__ import print_function
 from phylo_utils.seq_to_partials import dna_charmap, protein_charmap, seq_to_partials
 from phylo_utils.models import K80, WAG, LG
-from phylo_utils.likelihood import optimise, GammaMixture, LnlModel
+from phylo_utils.likelihood import optimise, GammaMixture, LnlModel, LnlNode, Leaf, brent_optimise
 import numpy as np
 import dendropy as dpy
 
@@ -16,9 +16,18 @@ sites_b = seq_to_partials('AAGCTCCGCGTAAGCTAACGACCAGTCAGCTAGGTTTAGTGCCACCAGTATGG
 
 optimise(k80, sites_a, sites_b)
 
+root = LnlNode(k80)
+root.set_partials(sites_a)
+leaf = Leaf(sites_b)
+# newton_optimise(root, leaf, tolerance=1e-6)
+brent_optimise(root, leaf)
+# res=scipy_optimise(root, leaf, method='l-bfgs-b')
+
+# newton1d_optimise(root, leaf)
+
 ############################################################################
 # Example from Section 4.2 of Ziheng's book - his value for node 6 is wrong!
-np.set_printoptions(precision=6)
+np.set_printoptions(precision=8)
 kappa = 2
 k80 = K80(kappa)
 
@@ -35,22 +44,21 @@ partials_dict = {'1': partials_1,
                  '5': partials_5}
 
 t = '((1:0.2,2:0.2):0.1,3:0.2,(4:0.2,5:0.2):0.2);'
-tree = dpy.Tree.get(schema='newick', data='(((1:0.2,2:0.2)7:0.1,3:0.2)6:0.1,(4:0.2,5:0.2)8:0.1)0;')
 tree = dpy.Tree.get(schema='newick', data=t)
 tree.resolve_polytomies()
-runner = LnlModel(k80, partials_dict)
-runner.set_tree(tree)
-print(runner.run(True))
-print(runner.get_sitewise_likelihoods())
-
-gamma = GammaMixture(400, 4)
-gamma.init_models(k80, partials_dict)
-gamma.set_tree(t)
-gamma.run()
-print(gamma.get_likelihood())
-print(gamma.get_sitewise_likelihoods())
-
-kappa = 2
+# runner = LnlModel(k80, partials_dict)
+# runner.set_tree(tree)
+# print(runner.run(True))
+# print(runner.get_sitewise_likelihoods())
+#
+# gamma = GammaMixture(400, 4)
+# gamma.init_models(k80, partials_dict)
+# gamma.set_tree(t)
+# gamma.run()
+# print(gamma.get_likelihood())
+# print(gamma.get_sitewise_likelihoods())
+#
+kappa = 1
 k80 = K80(kappa)
 
 partials_dict = {'1': seq_to_partials('ACCCT'),
@@ -59,22 +67,39 @@ partials_dict = {'1': seq_to_partials('ACCCT'),
                  '4': seq_to_partials('ACCCA'),
                  '5': seq_to_partials('CCCCC')}
 
-gamma = GammaMixture(.03, 4)
+gamma = GammaMixture(0.03, 4)
 gamma.init_models(k80, partials_dict)
 gamma.set_tree(t)
 gamma.run()
 print(gamma.get_likelihood())
+print(gamma.get_scale_bufs())
 print(gamma.get_sitewise_likelihoods())
 print(gamma.get_sitewise_likelihoods().sum(0))
 
-gamma.update_alpha(1.0)
-gamma.run()
-print(gamma.get_likelihood())
-print(gamma.get_sitewise_likelihoods())
-print(gamma.get_sitewise_likelihoods().sum(0))
+# gamma.update_alpha(1.0)
+# gamma.run()
+# print(gamma.get_likelihood())
+# print(gamma.get_sitewise_likelihoods())
+# print(gamma.get_sitewise_likelihoods().sum(0))
+#
+# gamma.update_substitution_model(K80(3))
+# gamma.run()
+# print(gamma.get_likelihood())
+# print(gamma.get_sitewise_likelihoods())
+# print(gamma.get_sitewise_likelihoods().sum(0))
+#
+# t = '((a:10, b:10.):10., c:10.);'
+# partials_dict = {'a': seq_to_partials('A'),
+#                  'b': seq_to_partials('T'),
+#                  'c': seq_to_partials('G')}
+#
+# tree = dpy.Tree.get(schema='newick', data=t)
+# tree.resolve_polytomies()
+# gamma = GammaMixture(0.03, 4)
+# gamma.init_models(k80, partials_dict)
+# gamma.set_tree(t)
+# gamma.run()
+# print(gamma.get_scale_bufs())
+# print(gamma.get_likelihood())
+# print(gamma.get_sitewise_likelihoods())
 
-gamma.update_substitution_model(K80(3))
-gamma.run()
-print(gamma.get_likelihood())
-print(gamma.get_sitewise_likelihoods())
-print(gamma.get_sitewise_likelihoods().sum(0))
