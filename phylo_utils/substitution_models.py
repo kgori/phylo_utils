@@ -187,7 +187,10 @@ class ProteinModel(Model):
     __metaclass__ = ABCMeta
     _name = 'GenericProtein'
     _size = 20
-    _states = ['A', 'R', 'N', 'D', 'C', 'Q', 'E', 'G', 'H', 'I', 'L', 'K', 'M', 'F', 'P', 'S', 'T', 'W', 'Y', 'V']
+    _states = ['A', 'R', 'N', 'D', 'C',
+               'Q', 'E', 'G', 'H', 'I',
+               'L', 'K', 'M', 'F', 'P',
+               'S', 'T', 'W', 'Y', 'V']
     def __init__(self, rates, freqs):
         self._rates = check_rates(rates, self.size)
         self._freqs = check_frequencies(freqs, self.size)
