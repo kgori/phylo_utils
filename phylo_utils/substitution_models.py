@@ -26,22 +26,11 @@ def check_rates(rates, size):
         raise ValueError('Rate matrix is not symmetrical')
     return rates
 
-def identity(size):
-    mtx = np.zeros((size,size), dtype=np.double) + SMALL
-    mtx.flat[::size+1] = 1 - (SMALL * (size-1))
-    return mtx
-
 def impose_min_probs(mtx):
-    """
-    Ensure no probabilities are less than SMALL
-    Assumes matrix is square and main diagonal
-    is comfortably above zero, both of which
-    are reasonable for phylogenetic models
-    """
     if np.min(mtx) < SMALL:
-        size = mtx.shape[0]
-        mtx += SMALL
-        mtx.flat[::size+1] -= SMALL * size
+        clipped = np.clip(mtx, SMALL, 1.0)
+        clipped = clipped / clipped.sum(1)[:,np.newaxis]
+        return (clipped + clipped.T) / 2.0
     return mtx
 
 
@@ -80,37 +69,60 @@ class Model(object):
     def get_q_matrix(self):
         return self._q_mtx
 
-    def get_p_matrix(self, t):
+    def get_b_matrix(self):
+        return compute_b_matrix(self.get_q_matrix(), np.sqrt(self.freqs))
+
+    def get_p_matrix(self, t, rates=None):
         """
         P = transition probabilities
         """
         evecs, evals, ivecs = self.eigen.values
-        return impose_min_probs((evecs * np.exp(evals * t)).dot(ivecs))
+        if rates is None:
+            return impose_min_probs((evecs * np.exp(evals * t)).dot(ivecs))
+            # return (evecs * np.exp(evals * t)).dot(ivecs)
+        else:
+            return np.stack(
+                [impose_min_probs((evecs * np.exp(evals * t * rate)).dot(ivecs)) for rate in rates],
+                # [(evecs * np.exp(evals * t * rate)).dot(ivecs) for rate in rates],
+                axis=2)
 
-    def get_dp_matrix(self, t):
+    def get_dp_matrix(self, t, rates=None):
         """
         First derivative of P
         """
         evecs, evals, ivecs = self.eigen.values
-        return (evecs*evals*np.exp(evals*t)).dot(ivecs)
+        if rates is None:
+            return (evecs * evals * np.exp(evals * t)).dot(ivecs)
+        else:
+            return np.stack([(evecs * evals * np.exp(evals * t * rate)).dot(ivecs) for rate in rates],
+                            axis=2)
 
-    def get_d2p_matrix(self, t):
+    def get_d2p_matrix(self, t, rates=None):
         """
         Second derivative of P
         """
         evecs, evals, ivecs = self.eigen.values
-        return (evecs*evals*evals*np.exp(evals*t)).dot(ivecs)
+        if rates is None:
+            return (evecs * evals * evals * np.exp(evals * t)).dot(ivecs)
+        else:
+            return np.stack([(evecs * evals * evals * np.exp(evals * t * rate)).dot(ivecs) for rate in rates], axis=2)
 
 
 def compute_q_matrix(rates, freqs):
     """
     Computes the instantaneous rate matrix (Q matrix)
     from substitution rates and equilibrium frequencies.
-    Values are scaled s.t. units are in substitutions per site.
+    Values are scaled s.t. units are in expected substitutions
+    per site (E(sps)) - see
+    https://en.wikipedia.org/wiki/Models_of_DNA_evolution#Scaling_of_branch_lengths.
+    Scaling factor = -∑π_i*q_ii
     """
-    q = rates.dot(np.diag(freqs))
+    if freqs is None:
+        q = rates
+    else:
+        q = rates.dot(np.diag(freqs))
     q.flat[::len(freqs)+1] -= q.sum(1)
-    q /= (-(np.diag(q)*freqs).sum())
+    q /= (-(np.diag(q)*freqs).sum()) # scale so lengths are in E(sps)
     return q
 
 
@@ -122,6 +134,20 @@ def compute_b_matrix(q_matrix, sqrtfreqs):
     stable numerical eigen decomposition routines on B than on Q.
     """
     return np.diag(sqrtfreqs).dot(q_matrix).dot(np.diag(1/sqrtfreqs))
+
+
+def q_to_freqs(q_matrix):
+    """
+    Compute the equilibrium frequencies from a Q matrix by
+    solving Q'r = 0 subject to 1.r = 1
+    """
+    n = q_matrix.shape[0]
+    M = np.zeros((n + 1, n + 1))
+    M[0] = 1
+    M[1:, :n] = q_matrix.T
+
+    pi, _, _, _ = np.linalg.lstsq(M[:, :n], M[:, n])
+    return pi
 
 
 def get_eigen(q_matrix, freqs=None):
@@ -156,6 +182,7 @@ class Eigen(object):
 
 
 class ProteinModel(Model):
+    __metaclass__ = ABCMeta
     _name = 'GenericProtein'
     _size = 20
     _states = ['A', 'R', 'N', 'D', 'C', 'Q', 'E', 'G', 'H', 'I', 'L', 'K', 'M', 'F', 'P', 'S', 'T', 'W', 'Y', 'V']
@@ -190,8 +217,8 @@ class WAG(ProteinModel):
         self.eigen = Eigen(*get_eigen(self._q_mtx, self._freqs))
 
 
-class DNAModel(Model):
-    _name = 'GenericDNA'
+class DNAReversibleModel(Model):
+    _name = 'GenericReversibleDNA'
     _size = 4
     _states = ['T', 'C', 'A', 'G']
     def __init__(self, rates, freqs):
@@ -202,7 +229,39 @@ class DNAModel(Model):
         return self._q_mtx
 
 
-class GTR(DNAModel):
+class DNANonReversibleModel(Model):
+    _name = 'GenericNonReversibleDNA'
+    _size = 4
+    _states = ['T', 'C', 'A', 'G']
+    def __init__(self, rates):
+        if not rates.shape == (self.size, self.size):
+            raise ValueError('DNA rate matrix is not 4x4')
+        self._rates = rates
+
+    def get_q_matrix(self):
+        return self._q_mtx
+
+
+class Unrest(DNANonReversibleModel):
+    _name = 'UNREST'
+    def __init__(self, rates=None, reorder=False):
+        if rates is None:
+            rates = fixed_equal_nucleotide_rates.copy()
+        else:
+            rates = np.ascontiguousarray(rates)
+        if reorder:
+            index = np.array([[3,1,0,2]])
+            rates = rates[index, index.T]
+        super(Unrest, self).__init__(rates)
+        self._q_mtx = compute_q_matrix(self._rates, None)
+        self.eigen = Eigen(*get_eigen(self._q_mtx))
+
+    @property
+    def freqs(self):
+        return q_to_freqs(self._q_mtx)
+
+
+class GTR(DNAReversibleModel):
     _name = 'GTR'
     def __init__(self, rates=None, freqs=None, reorder=False):
         """ reorder=True indicates that the input rates and frequencies
@@ -220,8 +279,8 @@ class GTR(DNAModel):
             self._rates = check_rates(self.square_matrix(rates), self.size)
         self._freqs = check_frequencies(freqs, self.size)
         if reorder:
-            index = np.array([[3,1,0,2]])
-            self._rates = self._rates[index, index.T]
+            index = np.array([3,1,0,2])
+            self._rates = self._rates[index, index[:, np.newaxis]]
             self._freqs = self._freqs[index]
         self._q_mtx = compute_q_matrix(self._rates, self._freqs)
         self.eigen = Eigen(*get_eigen(self._q_mtx, self._freqs))
@@ -256,7 +315,7 @@ jc_ivecs = np.asfortranarray([[0.25,0.25,0.25,0.25],
 jc_evals = np.ascontiguousarray([0, -4/3, -4/3, -4/3], dtype=np.double)
 
 
-class JC69(DNAModel):
+class JC69(DNAReversibleModel):
     _name = 'JC69'
     _freqs = fixed_equal_nucleotide_frequencies.copy()
     def __init__(self):
@@ -272,7 +331,8 @@ class JC69(DNAModel):
     def get_p_matrix(self, t):
         e1 = 0.25 + 0.75*np.exp(-4*t/3.)
         e2 = 0.25 - 0.25*np.exp(-4*t/3.)
-        return impose_min_probs(np.array([[e1,e2,e2,e2],[e2,e1,e2,e2],[e2,e2,e1,e2],[e2,e2,e2,e1]]))
+        return impose_min_probs(np.array([[e1, e2, e2, e2], [e2, e1, e2, e2], [e2, e2, e1, e2], [e2, e2, e2, e1]]))
+        # return np.array([[e1, e2, e2, e2], [e2, e1, e2, e2], [e2, e2, e1, e2], [e2, e2, e2, e1]])
 
 
 def tn93_q(pi_t, pi_c, pi_a, pi_g, alpha1, alpha2, beta, scale):
@@ -317,7 +377,7 @@ def tn93_evals(pi_t, pi_c, pi_a, pi_g, alpha1, alpha2, beta, scale):
                                  -(pi_y*alpha1 + pi_r*beta)], dtype=np.double) / scale
 
 
-class TN93(DNAModel):
+class TN93(DNAReversibleModel):
     _name = 'TN93'
     def __init__(self, alpha1, alpha2, beta, freqs=None, reorder=False):
         if freqs is None:
@@ -367,6 +427,7 @@ class F84(TN93):
         alpha1 = 1+kappa/(freqs[0]+freqs[1])
         alpha2 = 1+kappa/(freqs[2]+freqs[3])
         super(F84, self).__init__(alpha1, alpha2, 1, freqs, reorder)
+
 
 class HKY85(TN93):
     _name = 'HKY85'
