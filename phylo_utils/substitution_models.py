@@ -108,7 +108,7 @@ class Model(object):
             return np.stack([(evecs * evals * evals * np.exp(evals * t * rate)).dot(ivecs) for rate in rates], axis=2)
 
 
-def compute_q_matrix(rates, freqs):
+def compute_q_matrix(rates, freqs, scale=True):
     """
     Computes the instantaneous rate matrix (Q matrix)
     from substitution rates and equilibrium frequencies.
@@ -122,7 +122,9 @@ def compute_q_matrix(rates, freqs):
     else:
         q = rates.dot(np.diag(freqs))
     q.flat[::len(freqs)+1] -= q.sum(1)
-    q /= (-(np.diag(q)*freqs).sum()) # scale so lengths are in E(sps)
+    if scale:
+        scale_factor = np.diag(q).dot(freqs)
+        q /= scale_factor # scale so lengths are in E(sps)
     return q
 
 
@@ -263,7 +265,7 @@ class Unrest(DNANonReversibleModel):
 
 class GTR(DNAReversibleModel):
     _name = 'GTR'
-    def __init__(self, rates=None, freqs=None, reorder=False):
+    def __init__(self, rates=None, freqs=None, reorder=False, scale_q=True):
         """ reorder=True indicates that the input rates and frequencies
         are given in column order ACGT, and need to be reordered
         to the order TCAG (paml order) """
@@ -282,7 +284,7 @@ class GTR(DNAReversibleModel):
             index = np.array([3,1,0,2])
             self._rates = self._rates[index, index[:, np.newaxis]]
             self._freqs = self._freqs[index]
-        self._q_mtx = compute_q_matrix(self._rates, self._freqs)
+        self._q_mtx = compute_q_matrix(self._rates, self._freqs, scale_q)
         self.eigen = Eigen(*get_eigen(self._q_mtx, self._freqs))
 
     def square_matrix(self, uppertri):
@@ -379,13 +381,13 @@ def tn93_evals(pi_t, pi_c, pi_a, pi_g, alpha1, alpha2, beta, scale):
 
 class TN93(DNAReversibleModel):
     _name = 'TN93'
-    def __init__(self, alpha1, alpha2, beta, freqs=None, reorder=False):
+    def __init__(self, alpha1, alpha2, beta, freqs=None, reorder=False, scale_q=True):
         if freqs is None:
             freqs = fixed_equal_nucleotide_frequencies.copy()
         else:
             freqs = check_frequencies(freqs, 4)
         self._freqs = freqs
-        scale = tn93_scale(*freqs, alpha1=alpha1, alpha2=alpha2, beta=beta)
+        scale = tn93_scale(*freqs, alpha1=alpha1, alpha2=alpha2, beta=beta) if scale_q else 1.0
         mtx = np.array([
             [0, alpha1, beta, beta],
             [alpha1, 0, beta, beta],
@@ -408,28 +410,28 @@ class TN93(DNAReversibleModel):
 class K80(TN93):
     _name = 'K80'
     _freqs = fixed_equal_nucleotide_frequencies.copy()
-    def __init__(self, kappa):
-        super(K80, self).__init__(kappa, kappa, 1, self._freqs)
+    def __init__(self, kappa, scale_q=True):
+        super(K80, self).__init__(kappa, kappa, 1, self._freqs, scale_q=scale_q)
 
 
 class F81(TN93):
     _name = 'F81'
-    def __init__(self, freqs, reorder=False):
-        super(F81, self).__init__(1, 1, 1, freqs, reorder)
+    def __init__(self, freqs, reorder=False, scale_q=True):
+        super(F81, self).__init__(1, 1, 1, freqs, reorder, scale_q=scale_q)
 
 
 class F84(TN93):
     _name = 'F84'
-    def __init__(self, kappa, freqs, reorder=False):
+    def __init__(self, kappa, freqs, reorder=False, scale_q=True):
         if reorder:
             freqs = freqs[np.array([3,1,0,2])]
             reorder = False
         alpha1 = 1+kappa/(freqs[0]+freqs[1])
         alpha2 = 1+kappa/(freqs[2]+freqs[3])
-        super(F84, self).__init__(alpha1, alpha2, 1, freqs, reorder)
+        super(F84, self).__init__(alpha1, alpha2, 1, freqs, reorder, scale_q=scale_q)
 
 
 class HKY85(TN93):
     _name = 'HKY85'
-    def __init__(self, kappa, freqs, reorder=False):
-        super(HKY85, self).__init__(kappa, kappa, 1, freqs, reorder)
+    def __init__(self, kappa, freqs, reorder=False, scale_q=True):
+        super(HKY85, self).__init__(kappa, kappa, 1, freqs, reorder, scale_q=scale_q)
