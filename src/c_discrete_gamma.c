@@ -1,7 +1,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "discrete_gamma.h"
+#include "c_discrete_gamma.h"
 // PAML code for discrete gamma
 
 // Forward decs
