@@ -23,29 +23,33 @@ class my_build_ext(build_ext):
                 if platform.system() == 'Darwin':
                     e.extra_compile_args.append('-mmacosx-version-min=10.7')
                     e.extra_link_args.append('-mmacosx-version-min=10.7')
-                for list_ in (e.extra_compile_args, e.extra_link_args):
-                    list_.remove('-fopenmp')
-                    list_.append('-openmp')
+                # for list_ in (e.extra_compile_args, e.extra_link_args):
+                #     list_.remove('-fopenmp')
+                #     list_.append('-openmp')
         build_ext.build_extensions(self)
 
-
-ext = Extension("phylo_utils.likcalc",
-                sources = ['extensions/likcalc.pyx',
-                           'extensions/discrete_gamma.c'],
-                include_dirs = [numpy.get_include()],
-                extra_compile_args=['-fopenmp'],
-                extra_link_args=['-fopenmp']
-               )
+# extra_compile_args=['-fopenmp'],
+# extra_link_args=['-fopenmp'])
+ext_modules = [
+    Extension("phylo_utils.discrete_gamma",
+              sources = ['src/c_discrete_gamma.c',
+                         'src/discrete_gamma.pyx'],
+              include_dirs = [numpy.get_include()]),
+    Extension("phylo_utils.optimisation",
+              sources = ['src/optimisation.pyx'],
+              include_dirs = [numpy.get_include()]),
+    Extension("phylo_utils.simulation",
+              sources = ['src/simulation.pyx'],
+              include_dirs = [numpy.get_include()])]
 
 
 setup(cmdclass={'build_ext': my_build_ext},
       name="phylo_utils",
       author='Kevin Gori',
-      author_email='kgori@ebi.ac.uk',
+      author_email='kcg25@cam.ac.uk',
       description='Phylogenetics calculations in python',
       url='',
-      version="0.0.6",
-      ext_modules = [ext],
-      install_requires = ['cython', 'numpy', 'scipy', 'dendropy'],
-      packages=find_packages(),
-     )
+      version="0.9.9000",
+      ext_modules = ext_modules,
+      install_requires = ['cython', 'numpy', 'scipy', 'dendropy', 'numba'],
+      packages=find_packages())
