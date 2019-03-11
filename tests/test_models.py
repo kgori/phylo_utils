@@ -9,14 +9,14 @@ class TestModels(TestCase):
 
     def test_check_frequencies_mismatched_length(self):
         with self.assertRaises(ValueError):
-            phy.models.check_frequencies(self.good_array, 5)
+            phy.substitution_models.check_frequencies(self.good_array, 5)
 
     def test_check_frequencies_bad_input(self):
         with self.assertRaises(ValueError):
-            phy.models.check_frequencies(self.bad_array, 4)
+            phy.substitution_models.check_frequencies(self.bad_array, 4)
 
     def test_check_frequencies_good_input(self):
-        self.assertTrue(np.allclose(self.good_array, phy.models.check_frequencies(self.good_array, 4)))
+        self.assertTrue(np.allclose(self.good_array, phy.substitution_models.check_frequencies(self.good_array, 4)))
 
     def test_JC(self):
-        model = phy.models.JC69()
+        model = phy.substitution_models.JC69()
