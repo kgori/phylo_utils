@@ -348,7 +348,7 @@ def tn93_q(pi_a, pi_c, pi_g, pi_t, alpha_y, alpha_r, beta, scale):
         [beta * pi_a, alpha_y * pi_c, beta * pi_g, -(alpha_y * pi_c + beta * pi_r)]])
     return q / scale
 
-def tn93_scale(pi_t, pi_c, pi_a, pi_g, alpha_y, alpha_r, beta):
+def tn93_scale(pi_a, pi_c, pi_g, pi_t, alpha_y, alpha_r, beta):
     return 2 * (alpha_y*pi_c*pi_t +
                 beta*pi_a*pi_t +
                 beta*pi_a*pi_c +
