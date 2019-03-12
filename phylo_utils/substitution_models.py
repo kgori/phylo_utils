@@ -123,7 +123,7 @@ def compute_q_matrix(rates, freqs, scale=True):
         q = rates.dot(np.diag(freqs))
     q.flat[::len(freqs)+1] -= q.sum(1)
     if scale:
-        scale_factor = np.diag(q).dot(freqs)
+        scale_factor = -np.diag(q).dot(freqs)
         q /= scale_factor # scale so lengths are in E(sps)
     return q
 
@@ -225,7 +225,7 @@ class WAG(ProteinModel):
 class DNAReversibleModel(Model):
     _name = 'GenericReversibleDNA'
     _size = 4
-    _states = ['T', 'C', 'A', 'G']
+    _states = ['A', 'C', 'G', 'T']
     def __init__(self, rates, freqs):
         self._rates = check_rates(rates, self.size)
         self._freqs = check_frequencies(freqs, self.size)
@@ -237,7 +237,7 @@ class DNAReversibleModel(Model):
 class DNANonReversibleModel(Model):
     _name = 'GenericNonReversibleDNA'
     _size = 4
-    _states = ['T', 'C', 'A', 'G']
+    _states = ['A', 'C', 'G', 'T']
     def __init__(self, rates):
         if not rates.shape == (self.size, self.size):
             raise ValueError('DNA rate matrix is not 4x4')
@@ -249,14 +249,11 @@ class DNANonReversibleModel(Model):
 
 class Unrest(DNANonReversibleModel):
     _name = 'UNREST'
-    def __init__(self, rates=None, reorder=False):
+    def __init__(self, rates=None):
         if rates is None:
             rates = fixed_equal_nucleotide_rates.copy()
         else:
             rates = np.ascontiguousarray(rates)
-        if reorder:
-            index = np.array([[3,1,0,2]])
-            rates = rates[index, index.T]
         super(Unrest, self).__init__(rates)
         self._q_mtx = compute_q_matrix(self._rates, None)
         self.eigen = Eigen(*get_eigen(self._q_mtx))
@@ -268,10 +265,13 @@ class Unrest(DNANonReversibleModel):
 
 class GTR(DNAReversibleModel):
     _name = 'GTR'
-    def __init__(self, rates=None, freqs=None, reorder=False, scale_q=True):
-        """ reorder=True indicates that the input rates and frequencies
-        are given in column order ACGT, and need to be reordered
-        to the order TCAG (paml order) """
+    def __init__(self, rates=None, freqs=None, scale_q=True):
+        """
+        Create a GTR model for the given rates and frequencies.
+        scale_q controls whether the instantaneous rate (Q) matrix
+        should be scaled so that units are measured in average
+        substitutions per site.
+        """
         if rates is None:
             rates = fixed_equal_nucleotide_rates.copy()
         else:
@@ -283,21 +283,17 @@ class GTR(DNAReversibleModel):
         elif rates.shape == (self.size*(self.size-1)/2,):
             self._rates = check_rates(self.square_matrix(rates), self.size)
         self._freqs = check_frequencies(freqs, self.size)
-        if reorder:
-            index = np.array([3,1,0,2])
-            self._rates = self._rates[index, index[:, np.newaxis]]
-            self._freqs = self._freqs[index]
         self._q_mtx = compute_q_matrix(self._rates, self._freqs, scale_q)
         self.eigen = Eigen(*get_eigen(self._q_mtx, self._freqs))
 
     def square_matrix(self, uppertri):
         mtx = np.zeros((self.size, self.size))
-        mtx[0, 1] = mtx[1, 0] = uppertri[0]  # TC
-        mtx[0, 2] = mtx[2, 0] = uppertri[1]  # TA
-        mtx[0, 3] = mtx[3, 0] = uppertri[2]  # TG
-        mtx[1, 2] = mtx[2, 1] = uppertri[3]  # CA
-        mtx[1, 3] = mtx[3, 1] = uppertri[4]  # CG
-        mtx[2, 3] = mtx[3, 2] = uppertri[5]  # AG
+        mtx[0, 1] = mtx[1, 0] = uppertri[0]  # AC
+        mtx[0, 2] = mtx[2, 0] = uppertri[1]  # AG
+        mtx[0, 3] = mtx[3, 0] = uppertri[2]  # AT
+        mtx[1, 2] = mtx[2, 1] = uppertri[3]  # CG
+        mtx[1, 3] = mtx[3, 1] = uppertri[4]  # CT
+        mtx[2, 3] = mtx[3, 2] = uppertri[5]  # GT
         return mtx
 
 
@@ -336,77 +332,82 @@ class JC69(DNAReversibleModel):
     def get_p_matrix(self, t):
         e1 = 0.25 + 0.75*np.exp(-4*t/3.)
         e2 = 0.25 - 0.25*np.exp(-4*t/3.)
-        return impose_min_probs(np.array([[e1, e2, e2, e2], [e2, e1, e2, e2], [e2, e2, e1, e2], [e2, e2, e2, e1]]))
+        return impose_min_probs(np.array([[e1, e2, e2, e2],
+                                          [e2, e1, e2, e2],
+                                          [e2, e2, e1, e2],
+                                          [e2, e2, e2, e1]]))
         # return np.array([[e1, e2, e2, e2], [e2, e1, e2, e2], [e2, e2, e1, e2], [e2, e2, e2, e1]])
 
+def tn93_q(pi_a, pi_c, pi_g, pi_t, alpha_y, alpha_r, beta, scale):
+    pi_y = pi_t + pi_c
+    pi_r = pi_a + pi_g
+    q = np.ascontiguousarray([
+        [-(alpha_r * pi_g + beta * pi_y), beta * pi_c, alpha_r * pi_g, beta * pi_t],
+        [beta * pi_a, -(alpha_y * pi_t + beta * pi_r), beta * pi_g, alpha_y * pi_t],
+        [alpha_r * pi_a, beta * pi_c, -(alpha_r * pi_a + beta * pi_y), beta * pi_t],
+        [beta * pi_a, alpha_y * pi_c, beta * pi_g, -(alpha_y * pi_c + beta * pi_r)]])
+    return q / scale
 
-def tn93_q(pi_t, pi_c, pi_a, pi_g, alpha1, alpha2, beta, scale):
+def tn93_scale(pi_t, pi_c, pi_a, pi_g, alpha_y, alpha_r, beta):
+    return 2 * (alpha_y*pi_c*pi_t +
+                beta*pi_a*pi_t +
+                beta*pi_a*pi_c +
+                alpha_r*pi_a*pi_g +
+                beta*pi_g*pi_t +
+                beta*pi_c*pi_g)
+
+def tn93_evecs(pi_a, pi_c, pi_g, pi_t):
     pi_y = pi_t + pi_c
     pi_r = pi_a + pi_g
     return np.ascontiguousarray(
-        [[-(alpha1*pi_c + beta*pi_r), alpha1*pi_c, beta*pi_a, beta*pi_g],
-         [alpha1*pi_t, -(alpha1*pi_t + beta*pi_r), beta*pi_a, beta*pi_g],
-         [beta*pi_t, beta*pi_c, -(alpha2*pi_g + beta*pi_y), alpha2*pi_g],
-         [beta*pi_t, beta*pi_c, alpha2*pi_a, -(alpha2*pi_a + beta*pi_y)]],
-        dtype=np.double) / scale
-
-def tn93_scale(pi_t, pi_c, pi_a, pi_g, alpha1, alpha2, beta):
-    return 2 * (alpha1*pi_c*pi_t+beta*pi_a*pi_t+beta*pi_a*pi_c+alpha2*pi_a*pi_g+beta*pi_g*pi_t+beta*pi_c*pi_g)
-
-def tn93_evecs(pi_t, pi_c, pi_a, pi_g):
-    pi_y = pi_t + pi_c
-    pi_r = pi_a + pi_g
-    return np.ascontiguousarray(
-        [[1, 1/pi_y, 0, pi_c/pi_y],
+        [[1, -1 / pi_r, pi_g / pi_r, 0],
          [1, 1/pi_y, 0, -pi_t/pi_y],
-         [1, -1/pi_r, pi_g/pi_r, 0],
-         [1, -1/pi_r, -pi_a/pi_r, 0]],
+         [1, -1/pi_r, -pi_a/pi_r, 0],
+         [1, 1 / pi_y, 0, pi_c / pi_y]],
         dtype=np.double)
 
-def tn93_ivecs(pi_t, pi_c, pi_a, pi_g):
+def tn93_ivecs(pi_a, pi_c, pi_g, pi_t):
     pi_y = pi_t + pi_c
     pi_r = pi_a + pi_g
     return np.asfortranarray(
-            [[pi_t, pi_c, pi_a, pi_g],
-             [pi_t*pi_r, pi_c*pi_r, -pi_a*pi_y, -pi_g*pi_y],
-             [0,0,1,-1],
-             [1,-1,0,0]],
-            dtype=np.double)
+        [[pi_a, pi_c, pi_g, pi_t],
+         [-pi_a * pi_y, pi_c * pi_r, -pi_g * pi_y, pi_t * pi_r],
+         [1, 0, -1, 0],
+         [0, -1, 0, 1]],
+        dtype=np.double)
 
-def tn93_evals(pi_t, pi_c, pi_a, pi_g, alpha1, alpha2, beta, scale):
+def tn93_evals(pi_a, pi_c, pi_g, pi_t, alpha_y, alpha_r, beta, scale):
     pi_y = pi_t + pi_c
     pi_r = pi_a + pi_g
     return np.ascontiguousarray([0,
                                  -beta,
-                                 -(pi_r*alpha2 + pi_y*beta),
-                                 -(pi_y*alpha1 + pi_r*beta)], dtype=np.double) / scale
+                                 -(pi_r*alpha_r + pi_y*beta),
+                                 -(pi_y*alpha_y + pi_r*beta)], dtype=np.double) / scale
 
 
 class TN93(DNAReversibleModel):
     _name = 'TN93'
-    def __init__(self, alpha1, alpha2, beta, freqs=None, reorder=False, scale_q=True):
+    def __init__(self, alpha_y, alpha_r, beta, freqs=None, scale_q=True):
         if freqs is None:
             freqs = fixed_equal_nucleotide_frequencies.copy()
         else:
             freqs = check_frequencies(freqs, 4)
         self._freqs = freqs
-        scale = tn93_scale(*freqs, alpha1=alpha1, alpha2=alpha2, beta=beta) if scale_q else 1.0
+        scale = tn93_scale(*freqs, alpha_y=alpha_y, alpha_r=alpha_r, beta=beta) if scale_q else 1.0
         mtx = np.array([
-            [0, alpha1, beta, beta],
-            [alpha1, 0, beta, beta],
-            [beta, beta, 0, alpha2],
-            [beta, beta, alpha2, 0]])
+            [0, beta, alpha_r, beta],
+            [beta, 0, beta, alpha_y],
+            [alpha_r, beta, 0, beta],
+            [beta, alpha_y, beta, 0]])
         self._rates = check_rates(mtx, 4)
-        self._alpha1 = alpha1
-        self._alpha2 = alpha2
+        self._alpha_y = alpha_y
+        self._alpha_r = alpha_r
         self._beta = beta
 
-        if reorder:
-            self._freqs = self._freqs[np.array([3,1,0,2])]
-        self._q_mtx = tn93_q(freqs[0], freqs[1], freqs[2], freqs[3], alpha1, alpha2, beta, scale)
+        self._q_mtx = tn93_q(freqs[0], freqs[1], freqs[2], freqs[3], alpha_y, alpha_r, beta, scale)
         self.eigen = Eigen(tn93_evecs(freqs[0], freqs[1], freqs[2], freqs[3]),
                         tn93_evals(freqs[0], freqs[1], freqs[2], freqs[3],
-                                      alpha1, alpha2, beta, scale),
+                                      alpha_y, alpha_r, beta, scale),
                         tn93_ivecs(freqs[0], freqs[1], freqs[2], freqs[3]))
 
 
@@ -419,22 +420,19 @@ class K80(TN93):
 
 class F81(TN93):
     _name = 'F81'
-    def __init__(self, freqs, reorder=False, scale_q=True):
-        super(F81, self).__init__(1, 1, 1, freqs, reorder, scale_q=scale_q)
+    def __init__(self, freqs, scale_q=True):
+        super(F81, self).__init__(1, 1, 1, freqs, scale_q=scale_q)
 
 
 class F84(TN93):
     _name = 'F84'
-    def __init__(self, kappa, freqs, reorder=False, scale_q=True):
-        if reorder:
-            freqs = freqs[np.array([3,1,0,2])]
-            reorder = False
-        alpha1 = 1+kappa/(freqs[0]+freqs[1])
-        alpha2 = 1+kappa/(freqs[2]+freqs[3])
-        super(F84, self).__init__(alpha1, alpha2, 1, freqs, reorder, scale_q=scale_q)
+    def __init__(self, kappa, freqs, scale_q=True):
+        alpha_y = 1+kappa/(freqs[1]+freqs[3])
+        alpha_r = 1+kappa/(freqs[0]+freqs[2])
+        super(F84, self).__init__(alpha_y, alpha_r, 1, freqs, scale_q=scale_q)
 
 
 class HKY85(TN93):
     _name = 'HKY85'
-    def __init__(self, kappa, freqs, reorder=False, scale_q=True):
-        super(HKY85, self).__init__(kappa, kappa, 1, freqs, reorder, scale_q=scale_q)
+    def __init__(self, kappa, freqs, scale_q=True):
+        super(HKY85, self).__init__(kappa, kappa, 1, freqs, scale_q=scale_q)
