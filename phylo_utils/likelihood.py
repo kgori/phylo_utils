@@ -44,8 +44,8 @@ class LnlNode(object):
         self.scale_buffer = None
 
     def update_transition_probabilities(self, len1, len2):
-        self.probs1 = self.subst_model.get_p_matrix(len1)
-        self.probs2 = self.subst_model.get_p_matrix(len2)
+        self.probs1 = self.subst_model.p(len1)
+        self.probs2 = self.subst_model.p(len2)
 
     def set_partials(self, partials):
         """ Set the partials at this node """
@@ -68,11 +68,11 @@ class LnlNode(object):
         returns array of [f, f', f''] values, where fs are unscaled unlogged likelihoods, and
         f' and f'' are unconverted partial derivatives.
         Logging, scaling and conversion are done in compute_likelihood """
-        probs = self.subst_model.get_p_matrix(brlen)
+        probs = self.subst_model.p(brlen)
 
         if derivatives:
-            dprobs = self.subst_model.get_dp_matrix(brlen)
-            d2probs = self.subst_model.get_d2p_matrix(brlen)
+            dprobs = self.subst_model.dp_dt(brlen)
+            d2probs = self.subst_model.d2p_dt2(brlen)
             self.sitewise = likcalc.sitewise_lik_derivs(probs, dprobs, d2probs, self.subst_model.freqs, self.partials,
                                                         lnlmodel.partials)
         else:

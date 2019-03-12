@@ -123,8 +123,8 @@ class TreeModel(object):
             PAR, CH1, CH2 = instruction
             brlen1 = self.traversal.brlens[(PAR, CH1)]
             brlen2 = self.traversal.brlens[(PAR, CH2)]
-            prob1 = self.substitution_model.get_p_matrix(brlen1, self.rate_model.rates)
-            prob2 = self.substitution_model.get_p_matrix(brlen2, self.rate_model.rates)
+            prob1 = self.substitution_model.p(brlen1, self.rate_model.rates)
+            prob2 = self.substitution_model.p(brlen2, self.rate_model.rates)
 
             clv1 = self.partials[:, CH1, :, :]
             clv2 = self.partials[:, CH2, :, :]
@@ -144,8 +144,8 @@ class TreeModel(object):
         except KeyError:
             raise ValueError('There is no edge connecting nodes {} and {}'.format(node_a, node_b))
 
-        prob1 = self.substitution_model.get_p_matrix(0, self.rate_model.rates)
-        prob2 = self.substitution_model.get_p_matrix(length, self.rate_model.rates)
+        prob1 = self.substitution_model.p(0, self.rate_model.rates)
+        prob2 = self.substitution_model.p(length, self.rate_model.rates)
         clv1 = self.partials[:, node_a, :, :]
         clv2 = self.partials[:, node_b, :, :]
         scale1 = self.scale[:, node_a, :]

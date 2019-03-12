@@ -66,13 +66,13 @@ class Model(object):
     def states(self):
         return self._states
 
-    def get_q_matrix(self):
+    def q(self):
         return self._q_mtx
 
-    def get_b_matrix(self):
-        return compute_b_matrix(self.get_q_matrix(), np.sqrt(self.freqs))
+    def b(self):
+        return compute_b_matrix(self.q(), np.sqrt(self.freqs))
 
-    def get_p_matrix(self, t, rates=None):
+    def p(self, t, rates=None):
         """
         P = transition probabilities
         """
@@ -86,9 +86,9 @@ class Model(object):
                 # [(evecs * np.exp(evals * t * rate)).dot(ivecs) for rate in rates],
                 axis=2)
 
-    def get_dp_matrix(self, t, rates=None):
+    def dp_dt(self, t, rates=None):
         """
-        First derivative of P
+        First derivative of P w.r.t t
         """
         evecs, evals, ivecs = self.eigen.values
         if rates is None:
@@ -97,9 +97,9 @@ class Model(object):
             return np.stack([(evecs * evals * np.exp(evals * t * rate)).dot(ivecs) for rate in rates],
                             axis=2)
 
-    def get_d2p_matrix(self, t, rates=None):
+    def d2p_dt2(self, t, rates=None):
         """
-        Second derivative of P
+        Second derivative of P w.r.t t
         """
         evecs, evals, ivecs = self.eigen.values
         if rates is None:
@@ -230,7 +230,7 @@ class DNAReversibleModel(Model):
         self._rates = check_rates(rates, self.size)
         self._freqs = check_frequencies(freqs, self.size)
 
-    def get_q_matrix(self):
+    def q(self):
         return self._q_mtx
 
 
@@ -243,7 +243,7 @@ class DNANonReversibleModel(Model):
             raise ValueError('DNA rate matrix is not 4x4')
         self._rates = rates
 
-    def get_q_matrix(self):
+    def q(self):
         return self._q_mtx
 
 
@@ -329,7 +329,7 @@ class JC69(DNAReversibleModel):
         self._q_mtx = jc_q_mtx
         self.eigen = Eigen(jc_evecs, jc_evals, jc_ivecs)
 
-    def get_p_matrix(self, t):
+    def p(self, t):
         e1 = 0.25 + 0.75*np.exp(-4*t/3.)
         e2 = 0.25 - 0.25*np.exp(-4*t/3.)
         return impose_min_probs(np.array([[e1, e2, e2, e2],

@@ -16,8 +16,8 @@ class TestLnlNode(unittest.TestCase):
 
     def test_update_transition_probabilities(self):
         self.root.update_transition_probabilities(0.1, 0.2)
-        self.assertTrue(np.allclose(self.root.probs1, self.root.subst_model.get_p_matrix(0.1)))
-        self.assertTrue(np.allclose(self.root.probs2, self.root.subst_model.get_p_matrix(0.2)))
+        self.assertTrue(np.allclose(self.root.probs1, self.root.subst_model.p(0.1)))
+        self.assertTrue(np.allclose(self.root.probs2, self.root.subst_model.p(0.2)))
 
     def test_set_partials(self):
         self.root.set_partials([1,0,0,0])
