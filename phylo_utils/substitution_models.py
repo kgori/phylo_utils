@@ -1,5 +1,6 @@
 from __future__ import division
 import numpy as np
+import scipy.linalg as LA
 from abc import ABCMeta
 
 from phylo_utils.data import lg_rates, lg_freqs, wag_rates, wag_freqs, fixed_equal_nucleotide_rates, \
@@ -82,11 +83,11 @@ class Model(object):
         """
         evecs, evals, ivecs = self.eigen.values
         if rates is None:
-            return impose_min_probs((evecs * np.exp(evals * t)).dot(ivecs))
+            return (evecs * np.exp(evals * t)).dot(ivecs)
             # return (evecs * np.exp(evals * t)).dot(ivecs)
         else:
             return np.stack(
-                [impose_min_probs((evecs * np.exp(evals * t * rate)).dot(ivecs)) for rate in rates],
+                [(evecs * np.exp(evals * t * rate)).dot(ivecs) for rate in rates],
                 # [(evecs * np.exp(evals * t * rate)).dot(ivecs) for rate in rates],
                 axis=2)
 
@@ -251,6 +252,13 @@ class DNANonReversibleModel(Model):
     def q(self):
         return self._q_mtx
 
+    def p(self, t, rates = None):
+        q = self.q()
+        if rates:
+            return np.stack([LA.expm(q * rate * t) for rate in rates])
+        else:
+            return LA.expm(q * t)
+
 
 class Unrest(DNANonReversibleModel):
     _name = 'UNREST'
@@ -337,10 +345,10 @@ class JC69(DNAReversibleModel):
     def p(self, t):
         e1 = 0.25 + 0.75*np.exp(-4*t/3.)
         e2 = 0.25 - 0.25*np.exp(-4*t/3.)
-        return impose_min_probs(np.array([[e1, e2, e2, e2],
-                                          [e2, e1, e2, e2],
-                                          [e2, e2, e1, e2],
-                                          [e2, e2, e2, e1]]))
+        return np.array([[e1, e2, e2, e2],
+                         [e2, e1, e2, e2],
+                         [e2, e2, e1, e2],
+                         [e2, e2, e2, e1]])
         # return np.array([[e1, e2, e2, e2], [e2, e1, e2, e2], [e2, e2, e1, e2], [e2, e2, e2, e1]])
 
 def tn93_q(pi_a, pi_c, pi_g, pi_t, alpha_y, alpha_r, beta, scale):
