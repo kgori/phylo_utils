@@ -56,6 +56,7 @@ fixed_equal_nucleotide_rates = np.ascontiguousarray(
          [1.0, 0.0, 1.0, 1.0],
          [1.0, 1.0, 0.0, 1.0],
          [1.0, 1.0, 1.0, 0.0]])
+fixed_equal_nucleotide_rates.setflags(write=False)
 fixed_equal_nucleotide_frequencies = np.ascontiguousarray([0.25, 0.25, 0.25, 0.25])
 fixed_equal_nucleotide_frequencies.setflags(write=False)
 

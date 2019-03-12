@@ -14,15 +14,19 @@ def check_frequencies(freqs, length):
     freqs = np.ascontiguousarray(freqs)
     if len(freqs) != length:
         raise ValueError('Frequencies vector is not the right length (length={})'.format(len(freqs)))
+    if np.min(freqs) < 0:
+        raise ValueError('Frequencies vector contains negative values')
     if not np.allclose(sum(freqs), 1.0, rtol=1e-16):
         raise ValueError('Frequencies do not add to 1.0 within tolerance (sum={})'.format(sum(freqs)))
     return freqs
 
-def check_rates(rates, size):
+def check_rates(rates, size, symmetry=True):
     rates = np.ascontiguousarray(rates)
     if rates.shape != (size, size):
         raise ValueError('Rate matrix is not the right shape (length={})'.format(rates.shape))
-    if not np.allclose(rates, rates.T):
+    if np.min(rates) < 0:
+        raise ValueError('Rate matrix contains negative values')
+    if symmetry and not np.allclose(rates, rates.T):
         raise ValueError('Rate matrix is not symmetrical')
     return rates
 
@@ -121,8 +125,11 @@ def compute_q_matrix(rates, freqs, scale=True):
         q = rates
     else:
         q = rates.dot(np.diag(freqs))
-    q.flat[::len(freqs)+1] -= q.sum(1)
+    assert q.shape[0] == q.shape[1], 'Q is not square'
+    q.flat[::q.shape[0]+1] -= q.sum(1)
     if scale:
+        if freqs is None:
+            freqs = q_to_freqs(q)
         scale_factor = -np.diag(q).dot(freqs)
         q /= scale_factor # scale so lengths are in E(sps)
     return q
@@ -239,9 +246,7 @@ class DNANonReversibleModel(Model):
     _size = 4
     _states = ['A', 'C', 'G', 'T']
     def __init__(self, rates):
-        if not rates.shape == (self.size, self.size):
-            raise ValueError('DNA rate matrix is not 4x4')
-        self._rates = rates
+        self._rates = check_rates(rates, self.size, symmetry=False)
 
     def q(self):
         return self._q_mtx
