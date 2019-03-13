@@ -123,7 +123,7 @@ def compute_q_matrix(rates, freqs, scale=True):
     Scaling factor = -∑π_i*q_ii
     """
     if freqs is None:
-        q = rates
+        q = rates.copy()
     else:
         q = rates.dot(np.diag(freqs))
     assert q.shape[0] == q.shape[1], 'Q is not square'
@@ -254,10 +254,10 @@ class DNANonReversibleModel(Model):
 
     def p(self, t, rates = None):
         q = self.q()
-        if rates:
-            return np.stack([LA.expm(q * rate * t) for rate in rates])
-        else:
+        if rates is None:
             return LA.expm(q * t)
+        else:
+            return np.stack([LA.expm(q * rate * t) for rate in rates], axis=2)
 
 
 class Unrest(DNANonReversibleModel):
