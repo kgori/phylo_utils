@@ -1,6 +1,7 @@
 # cython: boundscheck=False
 # cython: wraparound=False
 # cython: cdivision=True
+# cython: language_level=3
 from libc.stdlib cimport rand, RAND_MAX, srand
 cimport numpy as np
 from random import randint

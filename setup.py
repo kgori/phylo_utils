@@ -34,12 +34,15 @@ ext_modules = [
     Extension("phylo_utils.discrete_gamma",
               sources = ['src/c_discrete_gamma.c',
                          'src/discrete_gamma.pyx'],
+              define_macros = [('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')],
               include_dirs = [numpy.get_include()]),
     Extension("phylo_utils.optimisation",
               sources = ['src/optimisation.pyx'],
+              define_macros = [('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')],
               include_dirs = [numpy.get_include()]),
     Extension("phylo_utils.simulation",
               sources = ['src/simulation.pyx'],
+              define_macros = [('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')],
               include_dirs = [numpy.get_include()])]
 
 
