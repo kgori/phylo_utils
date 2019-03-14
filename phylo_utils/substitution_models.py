@@ -107,6 +107,14 @@ class Model(object):
         else:
             return np.stack([self.eigen.fn_apply(lambda x: x * x * np.exp(x * t * rate)) for rate in rates], axis=2)
 
+    def detailed_balance(self):
+        """
+        Check if the model satisfies detailed balance (π_i * q_ij == π_j * q_ji)
+        :return: True if detailed balance holds, otherwise False
+        """
+        m = self.q().T * self.freqs
+        return np.allclose(m, m.T)
+
 
 def compute_q_matrix(rates, freqs, scale=True):
     """
