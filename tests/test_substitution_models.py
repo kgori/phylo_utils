@@ -1,3 +1,5 @@
+import unittest
+from abc import abstractmethod
 from unittest import TestCase
 import numpy as np
 import phylo_utils as phy
@@ -31,33 +33,61 @@ class TestInputs(TestCase):
         self.assertTrue(np.allclose(self.good_array, phylo_utils.substitution_models.abstract.check_frequencies(self.good_array, 4)))
 
 
-class TestJC(object):
+class TestModelGeneric(TestCase):
+    def test_detailed_balance(self):
+        self.assertTrue(self.model.detailed_balance())
+
+    def test_q_scale(self):
+        self.assertAlmostEquals(self.model.freqs.T.dot(-np.diag(self.model.q())), 1.0)
+
+
+class TestJC(TestModelGeneric):
     model = JC69()
 
 
-class TestK80(object):
+class TestK80(TestModelGeneric):
     model = K80(1.5)
 
 
-class TestF81(object):
+class TestF81(TestModelGeneric):
     model = F81([0.1, 0.2, 0.3, 0.4])
 
 
-class TestF84(object):
+class TestF84(TestModelGeneric):
     model = F84(1.5, [0.1, 0.2, 0.3, 0.4])
 
 
-class TestHKY85(object):
+class TestHKY85(TestModelGeneric):
     model = HKY85(1.5, [0.1, 0.2, 0.3, 0.4])
 
 
-class TestGTR(object):
+class TestTN93(TestModelGeneric):
+    model = TN93(2.5, 2.4, freqs = [0.1, 0.2, 0.3, 0.4])
+
+
+class TestGTR(TestModelGeneric):
     model = GTR([6., 5., 4., 3., 2., 1.], [0.1, 0.2, 0.3, 0.4])
 
 
-class TestWAG(object):
+class TestUnrest(TestModelGeneric):
+    model = Unrest(rates = [[0.,  1.,  2.,  3.],
+                            [4.,  0.,  5.,  6.],
+                            [7.,  8.,  0.,  9.],
+                            [10., 11., 12., 0.]])
+
+    def test_detailed_balance(self):
+        self.assertFalse(self.model.detailed_balance())
+
+
+class TestWAG(TestModelGeneric):
     model = WAG()
 
 
-class TestLG(object):
+class TestLG(TestModelGeneric):
     model = LG()
+
+
+del TestModelGeneric  # don't test the abstract case
+
+if __name__ == '__main__':
+    unittest.main()
