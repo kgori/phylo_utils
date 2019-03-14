@@ -79,38 +79,33 @@ class Model(object):
 
     def p(self, t, rates=None):
         """
-        P = transition probabilities
+        P = transition probabilities after time period t
+        :param rates = list/array of floats or None. If not None, probabilities
+        are calculated separately for t * rate, for each rate, and stacked
+        along the last axis of a multidimensional array.
         """
-        evecs, evals, ivecs = self.eigen.values
         if rates is None:
-            return (evecs * np.exp(evals * t)).dot(ivecs)
-            # return (evecs * np.exp(evals * t)).dot(ivecs)
+            return self.eigen.exp(t)
         else:
-            return np.stack(
-                [(evecs * np.exp(evals * t * rate)).dot(ivecs) for rate in rates],
-                # [(evecs * np.exp(evals * t * rate)).dot(ivecs) for rate in rates],
-                axis=2)
+            return np.stack([self.eigen.exp(t * rate) for rate in rates], axis=2)
 
     def dp_dt(self, t, rates=None):
         """
         First derivative of P w.r.t t
         """
-        evecs, evals, ivecs = self.eigen.values
         if rates is None:
-            return (evecs * evals * np.exp(evals * t)).dot(ivecs)
+            return self.eigen.fn_apply(lambda x: x * np.exp(x * t))
         else:
-            return np.stack([(evecs * evals * np.exp(evals * t * rate)).dot(ivecs) for rate in rates],
-                            axis=2)
+            return np.stack([self.eigen.fn_apply(lambda x: x * np.exp(x * t * rate)) for rate in rates], axis=2)
 
     def d2p_dt2(self, t, rates=None):
         """
         Second derivative of P w.r.t t
         """
-        evecs, evals, ivecs = self.eigen.values
         if rates is None:
-            return (evecs * evals * evals * np.exp(evals * t)).dot(ivecs)
+            return self.eigen.fn_apply(lambda x: x * x * np.exp(x * t))
         else:
-            return np.stack([(evecs * evals * evals * np.exp(evals * t * rate)).dot(ivecs) for rate in rates], axis=2)
+            return np.stack([self.eigen.fn_apply(lambda x: x * x * np.exp(x * t * rate)) for rate in rates], axis=2)
 
 
 def compute_q_matrix(rates, freqs, scale=True):
@@ -156,7 +151,7 @@ def q_to_freqs(q_matrix):
     M[0] = 1
     M[1:, :n] = q_matrix.T
 
-    pi, _, _, _ = np.linalg.lstsq(M[:, :n], M[:, n])
+    pi, _, _, _ = np.linalg.lstsq(M[:, :n], M[:, n], rcond=None)
     return pi
 
 
@@ -189,6 +184,31 @@ class Eigen(object):
     @property
     def values(self):
         return self.evecs, self.evals, self.ivecs
+
+    def exp(self, t=1.0):
+        """
+        Compute matrix exponential using eigenvalues
+        Shorthand for Eigen.fn_apply(lambda x: np.exp(x * t))
+        :return:
+        """
+        return (self.evecs * np.exp(self.evals * t)).dot(self.ivecs)
+
+    def reconstitute(self):
+        """
+        Reconstitute the original matrix from its eigenvalue
+        decomposition.
+        Shorthand for Eigen.fn_apply(lambda x: x)
+        :return:
+        """
+        return (self.evecs * self.evals).dot(self.ivecs)
+
+    def fn_apply(self, fn):
+        """
+        Apply a function to the eigenvalues, then reconstitute
+        :param fn: a function, lambda, or callable object
+        :return:
+        """
+        return (self.evecs * fn(self.evals)).dot(self.ivecs)
 
 
 class ProteinModel(Model):
@@ -258,6 +278,20 @@ class DNANonReversibleModel(Model):
             return LA.expm(q * t)
         else:
             return np.stack([LA.expm(q * rate * t) for rate in rates], axis=2)
+
+    def dp_dt(self, t, rates = None):
+        q = self.q()
+        if rates is None:
+            return q.dot(LA.expm(q * t))
+        else:
+            return np.stack([q.dot(LA.expm(q * rate * t)) for rate in rates], axis=2)
+
+    def d2p_dt2(self, t, rates = None):
+        q = self.q()
+        if rates is None:
+            return q.dot(q).dot(LA.expm(q * t))
+        else:
+            return np.stack([q.dot(q).dot(LA.expm(q * rate * t)) for rate in rates], axis=2)
 
 
 class Unrest(DNANonReversibleModel):
