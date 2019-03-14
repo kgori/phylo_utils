@@ -1,8 +1,18 @@
 from unittest import TestCase
 import numpy as np
 import phylo_utils as phy
-from phylo_utils.substitution_models import JC69, K80, F81, F84, HKY85, TN93, GTR, Unrest
-from phylo_utils.substitution_models import LG, WAG
+import phylo_utils.substitution_models.abstract
+from phylo_utils.substitution_models import TN93
+from phylo_utils.substitution_models.unrest import Unrest
+from phylo_utils.substitution_models.gtr import GTR
+from phylo_utils.substitution_models.hky85 import HKY85
+from phylo_utils.substitution_models.f84 import F84
+from phylo_utils.substitution_models.f81 import F81
+from phylo_utils.substitution_models.k80 import K80
+from phylo_utils.substitution_models.jc69 import JC69
+from phylo_utils.substitution_models.wag import WAG
+from phylo_utils.substitution_models.lg import LG
+
 
 class TestInputs(TestCase):
     def setUp(self):
@@ -11,14 +21,14 @@ class TestInputs(TestCase):
 
     def test_check_frequencies_mismatched_length(self):
         with self.assertRaises(ValueError):
-            phy.substitution_models.check_frequencies(self.good_array, 5)
+            phylo_utils.substitution_models.abstract.check_frequencies(self.good_array, 5)
 
     def test_check_frequencies_bad_input(self):
         with self.assertRaises(ValueError):
-            phy.substitution_models.check_frequencies(self.bad_array, 4)
+            phylo_utils.substitution_models.abstract.check_frequencies(self.bad_array, 4)
 
     def test_check_frequencies_good_input(self):
-        self.assertTrue(np.allclose(self.good_array, phy.substitution_models.check_frequencies(self.good_array, 4)))
+        self.assertTrue(np.allclose(self.good_array, phylo_utils.substitution_models.abstract.check_frequencies(self.good_array, 4)))
 
 
 class TestJC(object):

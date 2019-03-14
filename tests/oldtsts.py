@@ -1,6 +1,8 @@
 from __future__ import print_function
 from phylo_utils.utils import seq_to_partials
-from phylo_utils.substitution_models import K80, WAG, LG
+from phylo_utils.substitution_models.wag import WAG
+from phylo_utils.substitution_models.lg import LG
+from phylo_utils.substitution_models.k80 import K80
 from phylo_utils.likelihood import optimise, GammaMixture, LnlModel, LnlNode, Leaf, brent_optimise
 import numpy as np
 import dendropy as dpy
