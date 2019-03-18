@@ -11,4 +11,4 @@ from phylo_utils.substitution_models.unrest import Unrest
 from phylo_utils.substitution_models.lg import LG
 from phylo_utils.substitution_models.wag import WAG
 
-__all__ = []
+__all__ = ['JC69', 'K80', 'F81', 'F84', 'HKY85', 'TN93', 'GTR', 'Unrest', 'LG', 'WAG']
