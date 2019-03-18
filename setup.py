@@ -1,24 +1,45 @@
 try:
-    from setuptools import setup, find_packages, Extension
+    from setuptools import setup, find_packages
 except ImportError:
-    from distutils.core import setup, Extension
-
+    from distutils.core import setup
 from Cython.Distutils import build_ext
+from Cython.Distutils.extension import Extension
 
 import numpy
 import platform, re, subprocess
 
+def string_contains(pattern, string):
+    return re.search(pattern, string) is not None
+
 def is_clang(bin):
+    """
+    Test if the compiler is clang
+    :param compiler: Compiler binary name (e.g. gcc-8, clang, ...)
+    :return: True if compiler is clang, else False
+    """
     proc = subprocess.Popen([bin, '-v'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = proc.communicate()
     output = str(b'\n'.join([stdout, stderr]).decode('ascii', 'ignore'))
     print(output)
-    return not re.search(r'clang', output) is None
+    return string_contains(r'clang', output)
+
+def is_apple_clang(compiler):
+    """
+    Test if the compiler is Apple clang
+    :param compiler: Compiler binary name (e.g. gcc-8, clang, ...)
+    :return: True if compiler is Apple clang, else False
+    """
+    proc = subprocess.Popen([compiler, '-v'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = proc.communicate()
+    output = str(b'\n'.join([stdout, stderr]).decode('ascii', 'ignore'))
+    print(output)
+    return (string_contains(r'Apple', output) and string_contains(r'clang', output))
+
 
 class my_build_ext(build_ext):
     def build_extensions(self):
         binary = self.compiler.compiler[0]
-        if is_clang(binary):
+        if is_apple_clang(binary):
             for e in self.extensions:
                 if platform.system() == 'Darwin':
                     e.extra_compile_args.append('-mmacosx-version-min=10.7')
