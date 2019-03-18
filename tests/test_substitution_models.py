@@ -38,7 +38,7 @@ class TestModelGeneric(TestCase):
         self.assertTrue(self.model.detailed_balance())
 
     def test_q_scale(self):
-        self.assertAlmostEquals(self.model.freqs.T.dot(-np.diag(self.model.q())), 1.0)
+        self.assertAlmostEqual(self.model.freqs.T.dot(-np.diag(self.model.q())), 1.0)
 
 
 class TestJC(TestModelGeneric):
