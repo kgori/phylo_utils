@@ -5,6 +5,7 @@
 import numpy as np
 cimport numpy as np
 from libc.math cimport fabs
+from scipy.special import (expit, logit)
 
 ##############################################################
 ## Parameter transforms for optimisation
@@ -40,12 +41,6 @@ def simplex_decode(theta):
     p = np.zeros(theta.size + 1)
     _simplex_decode(theta, p)
     return p
-
-def logit(p):
-    return np.log(p/(1-p))
-
-def expit(p):
-    return 1/(1+np.exp(-p))
 
 def transform_params(p):
     return logit(simplex_encode(p))
