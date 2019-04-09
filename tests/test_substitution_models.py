@@ -76,6 +76,14 @@ class TestLG(TestModelGeneric):
     model = LG()
 
 
+class TestJTT(TestModelGeneric):
+    model = JTT()
+
+
+class TestDayhoff(TestModelGeneric):
+    model = Dayhoff()
+
+
 del TestModelGeneric  # don't test the abstract case
 
 if __name__ == '__main__':

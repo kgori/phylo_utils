@@ -10,5 +10,7 @@ from phylo_utils.substitution_models.gtr import GTR
 from phylo_utils.substitution_models.unrest import Unrest
 from phylo_utils.substitution_models.lg import LG
 from phylo_utils.substitution_models.wag import WAG
+from phylo_utils.substitution_models.jtt import JTT
+from phylo_utils.substitution_models.dayhoff import Dayhoff
 
-__all__ = ['JC69', 'K80', 'F81', 'F84', 'HKY85', 'TN93', 'GTR', 'Unrest', 'LG', 'WAG']
+__all__ = ['JC69', 'K80', 'F81', 'F84', 'HKY85', 'TN93', 'GTR', 'Unrest', 'LG', 'WAG', 'JTT', 'Dayhoff']
