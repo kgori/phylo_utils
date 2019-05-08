@@ -1,8 +1,9 @@
 import numpy as np
 
 from phylo_utils.data import fixed_equal_nucleotide_rates, fixed_equal_nucleotide_frequencies
-from phylo_utils.substitution_models.abstract import check_frequencies, check_rates, compute_q_matrix, get_eigen, Eigen, \
+from phylo_utils.substitution_models.abstract import Eigen, \
     DNAReversibleModel
+from phylo_utils.substitution_models.utils import check_frequencies, check_rates, compute_q_matrix, get_eigen
 
 
 class GTR(DNAReversibleModel):

@@ -1,7 +1,8 @@
 import numpy as np
 
 from phylo_utils.data import fixed_equal_nucleotide_frequencies
-from phylo_utils.substitution_models.abstract import check_rates, Eigen, DNAReversibleModel
+from phylo_utils.substitution_models.abstract import Eigen, DNAReversibleModel
+from phylo_utils.substitution_models.utils import check_rates
 
 # Precomputed values for Jukes Cantor model
 jc_q_mtx = np.array([[-3,1,1,1],

@@ -4,7 +4,17 @@ import numpy as np
 import scipy.stats as ss
 from scipy.integrate import quad
 
-from .data import dna_charmap, protein_charmap
+def setup_logger():
+    import logging
+    logger = logging.getLogger(__name__)
+    for handler in logger.handlers:
+        logger.removeHandler(handler)
+    ch = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+    logger.setLevel(logging.INFO)
+    return logger
 
 
 def discretize(alpha, ncat, dist=ss.gamma):
@@ -32,12 +42,6 @@ def discretize(alpha, ncat, dist=ss.gamma):
         rates[i] = ncat * quad(lambda x: x * dist.pdf(x),
                                quantiles[i], quantiles[i+1])[0]
     return rates
-
-
-def seq_to_partials(seq, alphabet='dna'):
-    return np.ascontiguousarray(
-        [(dna_charmap[char] if alphabet=='dna' else protein_charmap[char]) 
-         for char in seq])
 
 
 # Free functions for working with dendropy trees

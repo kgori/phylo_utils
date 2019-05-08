@@ -3,21 +3,7 @@ import numpy as np
 import dendropy as dpy
 from scipy.optimize import minimize
 
-
-def setup_logger():
-    import logging
-    logger = logging.getLogger(__name__)
-    for handler in logger.handlers:
-        logger.removeHandler(handler)
-    ch = logging.StreamHandler()
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
-    logger.setLevel(logging.INFO)
-    return logger
-
-
-logger = setup_logger()
+from phylo_utils import logger
 
 
 class Leaf(object):

@@ -1,5 +1,6 @@
 from phylo_utils.data import dayhoff_rates, dayhoff_freqs
-from phylo_utils.substitution_models.abstract import check_frequencies, compute_q_matrix, get_eigen, Eigen, ProteinModel
+from phylo_utils.substitution_models.abstract import get_eigen, Eigen, ProteinModel
+from phylo_utils.substitution_models.utils import check_frequencies, compute_q_matrix
 
 
 class Dayhoff(ProteinModel):

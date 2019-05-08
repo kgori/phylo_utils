@@ -64,7 +64,11 @@ ext_modules = [
     Extension("phylo_utils.simulation",
               sources = ['src/simulation.pyx'],
               define_macros = [('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')],
-              include_dirs = [numpy.get_include()])]
+              include_dirs = [numpy.get_include()]),
+    Extension("phylo_utils.likelihood.cython_likelihood_engine",
+              sources = ['phylo_utils/likelihood/cython_likelihood_engine.pyx'],
+              define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')],
+              include_dirs=[numpy.get_include()])]
 
 
 setup(cmdclass={'build_ext': my_build_ext},
@@ -73,7 +77,7 @@ setup(cmdclass={'build_ext': my_build_ext},
       author_email='kcg25@cam.ac.uk',
       description='Phylogenetics calculations in python',
       url='',
-      version="0.9.9000",
+      version="0.9.9001",
       ext_modules = ext_modules,
       install_requires = ['cython', 'numpy', 'scipy', 'dendropy', 'numba'],
       packages=find_packages())

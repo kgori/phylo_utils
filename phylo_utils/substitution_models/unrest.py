@@ -1,8 +1,9 @@
 import numpy as np
 
 from phylo_utils.data import fixed_equal_nucleotide_rates
-from phylo_utils.substitution_models.abstract import compute_q_matrix, q_to_freqs, get_eigen, Eigen, \
+from phylo_utils.substitution_models.abstract import Eigen, \
     DNANonReversibleModel
+from phylo_utils.substitution_models.utils import compute_q_matrix, q_to_freqs, get_eigen
 
 
 class Unrest(DNANonReversibleModel):

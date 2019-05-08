@@ -1,0 +1,3 @@
+DNA = 0
+PROTEIN = 1
+BINARY = 2

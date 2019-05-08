@@ -1,5 +1,6 @@
 from phylo_utils.data import wag_rates, wag_freqs
-from phylo_utils.substitution_models.abstract import check_frequencies, compute_q_matrix, get_eigen, Eigen, ProteinModel
+from phylo_utils.substitution_models.abstract import Eigen, ProteinModel
+from phylo_utils.substitution_models.utils import check_frequencies, compute_q_matrix, get_eigen
 
 
 class WAG(ProteinModel):

@@ -1,9 +1,13 @@
 from phylo_utils.likelihood.numba_likelihood_engine import clv, lnl_node
 from .traversal import Traversal
-from .utils import deepcopy_tree, seq_to_partials
+from .utils import deepcopy_tree
+from phylo_utils.alignment.alignment import alignment_to_numpy
+from phylo_utils.utils import setup_logger
 
 import numpy as np
 from scipy.misc import logsumexp
+
+logger = setup_logger()
 
 class TreeModel(object):
     """
@@ -36,43 +40,37 @@ class TreeModel(object):
 
     def set_alignment(self, alignment, alphabet, compress=True):
         """
-        Assumes biopython alignment
+        @param alignment: Biopython alignment
         """
-        if tuple([int(v) for v in np.version.version.split('.')]) < (1, 13, 0):
-            compress = False
-        _alignment = np.stack(
-            [seq_to_partials(str(seq.seq), alphabet) for seq in alignment])
-        self.names = {seq.name: i for i, seq in enumerate(alignment)}
-        n_sites = _alignment.shape[1]
-        if compress:
-            self.alignment, self.inverse_index, self.siteweights = np.unique(_alignment,
-                                                                             return_inverse=True, return_counts=True,
-                                                                             axis=1)
-        else:
-            self.alignment = _alignment
-            self.siteweights = np.ones(n_sites, dtype=np.int)
-            self.inverse_index = np.arange(n_sites)
+        aln, sw, ii, names = alignment_to_numpy(alignment, alphabet, compress)
+        self.alignment = aln
+        self.inverse_index = ii
+        self.siteweights = sw
+        self.names = names
 
     def get_empirical_freqs(self, pseudocount=None, include_ambiguous=False):
-        if self.alignment is not None:
-            counts = (
-                self.alignment.sum((0, 1))
-                if include_ambiguous
-                else self.alignment[np.where(self.alignment.sum(2) < self.alignment.shape[2])].sum(0)
-            )
+        if self.alignment is None:
+            logger.error("No alignment has been set")
+            return 0
 
-            if pseudocount is not None:
-                try:
-                    counts += np.array(pseudocount)
-                except TypeError:
-                    print("Log: pseudocount {} caused Type error. Carrying on "
-                          "without pseudocount.".format(pseudocount))
-                except ValueError:
-                    print("Log: pseudocount {} caused Value error (probably the"
-                          " wrong length). Carrying on without pseudocount.".format(pseudocount))
-            return counts / counts.sum()
-        else:
-            print('Log: No alignment set')
+        if include_ambiguous:
+            # self.alignment[np.where(self.alignment.sum(2) < self.alignment.shape[2])].sum(0)
+            logger.warn("Not implemented")
+
+        counts = (self.alignment * self.siteweights[np.newaxis,:,np.newaxis]).sum((0, 1))
+
+        if pseudocount is not None:
+            try:
+                counts += np.array(pseudocount)
+            except TypeError:
+                logger.warn("Pseudocount {} caused Type error. Carrying on "
+                      "without pseudocount.".format(pseudocount))
+            except ValueError:
+                logger.warn("Pseudocount {} caused Value error (probably the"
+                      " wrong length). Carrying on without pseudocount.".format(pseudocount))
+
+        return counts / counts.sum()
+
 
     def set_substitution_model(self, model):
         """

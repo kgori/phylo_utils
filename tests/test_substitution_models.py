@@ -2,6 +2,7 @@ import unittest
 from unittest import TestCase
 import numpy as np
 import phylo_utils.substitution_models.abstract
+import phylo_utils.substitution_models.utils
 from phylo_utils.substitution_models import *
 
 
@@ -12,14 +13,14 @@ class TestInputs(TestCase):
 
     def test_check_frequencies_mismatched_length(self):
         with self.assertRaises(ValueError):
-            phylo_utils.substitution_models.abstract.check_frequencies(self.good_array, 5)
+            phylo_utils.substitution_models.utils.check_frequencies(self.good_array, 5)
 
     def test_check_frequencies_bad_input(self):
         with self.assertRaises(ValueError):
-            phylo_utils.substitution_models.abstract.check_frequencies(self.bad_array, 4)
+            phylo_utils.substitution_models.utils.check_frequencies(self.bad_array, 4)
 
     def test_check_frequencies_good_input(self):
-        self.assertTrue(np.allclose(self.good_array, phylo_utils.substitution_models.abstract.check_frequencies(self.good_array, 4)))
+        self.assertTrue(np.allclose(self.good_array, phylo_utils.substitution_models.utils.check_frequencies(self.good_array, 4)))
 
 
 class TestModelGeneric(TestCase):
@@ -56,6 +57,19 @@ class TestTN93(TestModelGeneric):
 
 class TestGTR(TestModelGeneric):
     model = GTR([6., 5., 4., 3., 2., 1.], [0.1, 0.2, 0.3, 0.4])
+
+
+class TestStrsym(TestModelGeneric):
+    model = Strsym([1., 2., 3., 4., 5., 6.])
+
+    def test_detailed_balance(self):
+        self.assertFalse(self.model.detailed_balance())
+
+    def test_frequency_constraint_AT(self):
+        self.assertAlmostEqual(self.model.freqs[0], self.model.freqs[3])
+
+    def test_frequency_constraint_CG(self):
+        self.assertAlmostEqual(self.model.freqs[1], self.model.freqs[2])
 
 
 class TestUnrest(TestModelGeneric):

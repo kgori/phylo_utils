@@ -1,7 +1,8 @@
 import numpy as np
 
 from phylo_utils.data import fixed_equal_nucleotide_frequencies
-from phylo_utils.substitution_models.abstract import check_frequencies, check_rates, Eigen, DNAReversibleModel
+from phylo_utils.substitution_models.abstract import Eigen, DNAReversibleModel
+from phylo_utils.substitution_models.utils import check_frequencies, check_rates
 
 
 def tn93_q(pi_a, pi_c, pi_g, pi_t, alpha_y, alpha_r, beta, scale):
