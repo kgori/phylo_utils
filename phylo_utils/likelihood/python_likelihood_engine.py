@@ -4,7 +4,7 @@ SCALE_THRESHOLD = np.finfo('float').eps
 def clv(probs_a, probs_b,
         clv_a, clv_b,
         scale_a, scale_b,
-        scale, out):
+        scale, out=None):
     """
     Compute the conditional likelihood vector at the parent of nodes 'a' and 'b'.
 
@@ -25,17 +25,23 @@ def clv(probs_a, probs_b,
     :param scale: sitewise log scale values computed for current (parent) node
     :param out:
     """
-    np.einsum('ijz,ikz,jz,kz->iz', probs_a, probs_b, clv_a, clv_b, out=out)
-    m = np.max(out, 0)
-    m[m >= SCALE_THRESHOLD] = 1
-    scale[:] = np.log(m) + scale_a + scale_b
-    out /= m
+    return_out = False
+    if out is None:
+        out = np.zeros_like(clv_a)
+        return_out = True
+    for site in range(clv_a.shape[0]):
+        np.einsum('ijz,ikz,jz,kz->iz', probs_a, probs_b, clv_a[site], clv_b[site], out=out[site])
+        m = np.max(out[site], 0)
+        m[m >= SCALE_THRESHOLD] = 1
+        scale[site, :] = np.log(m) + scale_a[site] + scale_b[site]
+        out[site] /= m
+    if return_out: return out
 
 def lnl_branch_derivs(probs, pi, clv_a, clv_b, scale_a, scale_b, out):
     f = np.sum(np.dot(probs[0], clv_a) * clv_b * pi)
     fp = np.sum(np.dot(probs[1], clv_a) * clv_b * pi)
     f2p = np.sum(np.dot(probs[2], clv_a) * clv_b * pi)
-    out[0] = log(f) + scale_a[0] + scale_b[0]
+    out[0] = np.log(f) + scale_a[0] + scale_b[0]
     out[1] = fp / f
     out[2] = ((f2p * f) - (fp * fp)) / (f * f)
 
@@ -58,7 +64,13 @@ def lnl_branch(probs, pi, partials_a, partials_b, scale_a, scale_b, out):
     f = np.sum(np.dot(probs, partials_a) * partials_b * pi)
     out[0] = log(f) + scale_a[0] + scale_b[0]
 
-def lnl_node(pi, partials, scale, out):
-    for k in range(partials.shape[1]):
-        f = np.sum(partials[:, k] * pi)
-        out[k] = log(f) + scale[k]
+def lnl_node(pi, partials, scale, out=None):
+    return_out = False
+    if out is None:
+        out = np.zeros_like(scale)
+        return_out = True
+    for site in range(partials.shape[0]):
+        for k in range(partials.shape[2]):
+            f = np.sum(partials[site, :, k] * pi)
+            out[site, k] = np.log(f) + scale[site, k]
+    if return_out: return out
