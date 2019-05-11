@@ -5,7 +5,7 @@ from phylo_utils.alignment.alignment import alignment_to_numpy
 from phylo_utils.utils import setup_logger
 
 import numpy as np
-from scipy.misc import logsumexp
+from scipy.special import logsumexp
 
 logger = setup_logger()
 
@@ -37,6 +37,7 @@ class TreeModel(object):
     Rates model
     """
     alignment = None
+    rate_scaler = 1.0
 
     def set_alignment(self, alignment, alphabet, compress=True):
         """
@@ -119,8 +120,8 @@ class TreeModel(object):
         """
         for instruction in self.traversal.postorder_traversal:
             PAR, CH1, CH2 = instruction
-            brlen1 = self.traversal.brlens[(PAR, CH1)]
-            brlen2 = self.traversal.brlens[(PAR, CH2)]
+            brlen1 = self.traversal.brlens[(PAR, CH1)] * self.rate_scaler
+            brlen2 = self.traversal.brlens[(PAR, CH2)] * self.rate_scaler
             prob1 = self.substitution_model.p(brlen1, self.rate_model.rates)
             prob2 = self.substitution_model.p(brlen2, self.rate_model.rates)
 
@@ -138,7 +139,7 @@ class TreeModel(object):
         """
         # Final computation at root
         try:
-            length = self.traversal.brlens[node_a, node_b]
+            length = self.traversal.brlens[node_a, node_b] * self.rate_scaler
         except KeyError:
             raise ValueError('There is no edge connecting nodes {} and {}'.format(node_a, node_b))
 

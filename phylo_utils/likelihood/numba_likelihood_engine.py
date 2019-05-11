@@ -41,7 +41,7 @@ def clv(probs_a, probs_b,
     for k in range(probs_a.shape[2]):
         tmp = np.dot(probs_a[:, :, k], clv_a[:, k]) * np.dot(probs_b[:, :, k], clv_b[:, k])
         m = np.max(tmp)
-        if m < SCALE_THRESHOLD:
+        if m < SCALE_THRESHOLD and m > 0:
             scale[k] = np.log(m) + scale_a[k] + scale_b[k]
             for j in range(tmp.size):
                 out[j, k] = tmp[j] / m
@@ -89,7 +89,7 @@ def lnl_branch(probs, pi, partials_a, partials_b, scale_a, scale_b, out):
 def lnl_node(pi, partials, scale, out):
     for k in range(partials.shape[1]):
         f = np.sum(partials[:, k] * pi)
-        out[k] = log(f) + scale[k]
+        out[k] = (log(f) + scale[k] if f > 0 else -np.inf)
 
 
 def make_multithread(inner_func, numthreads):
