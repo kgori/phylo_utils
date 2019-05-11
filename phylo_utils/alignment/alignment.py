@@ -3,6 +3,7 @@
 import numpy as np
 from Bio import AlignIO
 from Bio.Alphabet.IUPAC import IUPACAmbiguousDNA
+from functools import reduce
 
 from phylo_utils.alignment.charmaps import dna_charmap, protein_charmap, binary_charmap
 from phylo_utils.alignment.alphabets import DNA, PROTEIN, BINARY
@@ -54,3 +55,12 @@ def alignment_to_numpy(alignment, alphabet, compress=True):
         inverse_index = np.arange(n_sites)
 
     return alignment, siteweights, inverse_index, names
+
+def invariant_sites(alignment):
+    """
+    Create an index array of the invariant sites in the alignment
+    :param alignment: Alignment data in numpy array form
+    :return: numpy boolean array where True indicates an invariant site
+    """
+    return [np.any(reduce(np.logical_and, alignment[:, i, :], np.ones(alignment.shape[2], )))
+            for i in range(tm.alignment.shape[1])]
