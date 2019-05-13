@@ -37,7 +37,7 @@ class TreeModel(object):
     Rates model
     """
     alignment = None
-    rate_scaler = 1.0
+    ascbias = False
 
     def set_alignment(self, alignment, alphabet, compress=True):
         """
@@ -86,6 +86,12 @@ class TreeModel(object):
         self.tree = deepcopy_tree(dpytree)
         self.traversal = Traversal(self.tree)
 
+    def set_ascertainment_bias_correction(self):
+        """
+        Use the Lewis model of ascertainment bias correction
+        """
+        self.ascbias = True
+
     def initialise(self):
         """
         Allocate numpy arrays to store all partial likelihoods
@@ -94,6 +100,11 @@ class TreeModel(object):
         #       alignment and tree, etc...
         n_leaves, n_sites, n_chars = self.alignment.shape
         n_cat = self.rate_model.ncat
+
+        # if ascertainment bias correction, add space to include
+        # an invariant site for every character state in the alphabet
+        if self.ascbias:
+            n_sites += n_chars
 
         self.partials = np.zeros((n_sites, (2 * n_leaves - 2), n_chars, n_cat),
                                  dtype=np.double)
@@ -105,12 +116,23 @@ class TreeModel(object):
                                    dtype=np.double)
 
         # transfer alignment tip partials to partials array
+        n_orig_sites = self.alignment.shape[1]
         for name in self.traversal.names:
             tree_index = self.traversal.names[name]
             alignment_index = self.names[name]
             for cat in range(n_cat):
-                self.partials[:, tree_index, :, cat] = self.alignment[alignment_index]
-                self.scale[:, tree_index, cat] = 0
+                self.partials[:n_orig_sites, tree_index, :, cat] = self.alignment[alignment_index]
+                self.scale[:n_orig_sites, tree_index, cat] = 0
+
+        # Fill in the invariant sites for ascertainment bias correction
+        if self.ascbias:
+            first_dummy_site = self.inverse_index.max() + 1
+            for state in range(n_chars):
+                for leaf in self.traversal.names.values():
+                    site = first_dummy_site + state
+                    self.partials[site,
+                                  leaf,
+                                  state] = 1.0
 
         self.compute_partials()
 
@@ -120,8 +142,8 @@ class TreeModel(object):
         """
         for instruction in self.traversal.postorder_traversal:
             PAR, CH1, CH2 = instruction
-            brlen1 = self.traversal.brlens[(PAR, CH1)] * self.rate_scaler
-            brlen2 = self.traversal.brlens[(PAR, CH2)] * self.rate_scaler
+            brlen1 = self.traversal.brlens[(PAR, CH1)]
+            brlen2 = self.traversal.brlens[(PAR, CH2)]
             prob1 = self.substitution_model.p(brlen1, self.rate_model.rates)
             prob2 = self.substitution_model.p(brlen2, self.rate_model.rates)
 
@@ -139,7 +161,7 @@ class TreeModel(object):
         """
         # Final computation at root
         try:
-            length = self.traversal.brlens[node_a, node_b] * self.rate_scaler
+            length = self.traversal.brlens[node_a, node_b]
         except KeyError:
             raise ValueError('There is no edge connecting nodes {} and {}'.format(node_a, node_b))
 
@@ -162,5 +184,13 @@ class TreeModel(object):
         self.compute_partials_at_edge(node_a, node_b)
         swlnls = lnl_node(self.substitution_model.freqs,
                           self.root_partials, self.root_scale)
+
+        if self.ascbias:
+            # Last N entries are dummy invariant site likelihoods (N=num chars in alphabet)
+            # use these to adjust rest for asc bias
+            N = self.alignment.shape[2]
+            correction = np.log(1 - np.exp(logsumexp(swlnls[-N:])))
+            swlnls[:-N] -= correction
+
         swlnls = logsumexp(swlnls + np.log(self.rate_model.weights), axis=1)
         return swlnls[self.inverse_index]
