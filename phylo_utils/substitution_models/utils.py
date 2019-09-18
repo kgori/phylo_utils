@@ -96,3 +96,22 @@ def get_eigen(q_matrix, freqs=None):
     return (np.ascontiguousarray(evecs),
             np.ascontiguousarray(evals),
             np.asfortranarray(ivecs))
+
+
+def expm(matrix):
+    """
+    Using scaling and squaring technique with Taylor approximation
+    (implementation based on RevBayes)
+    """
+    s = 8
+    scale = 1.0 / 2**s
+    p = matrix * scale
+    p_2 = p.dot(p)
+    p_3 = p.dot(p_2)
+    p_4 = p.dot(p_3)
+
+    p += np.eye(p.shape[0]) + p_2 / 2.0 + p_3 / 6.0 + p_4 / 24.0
+    for _ in range(s):
+        p = p.dot(p)
+    return p
+
