@@ -1,7 +1,7 @@
 from phylo_utils.likelihood.numba_likelihood_engine import clv, lnl_node
 from .traversal import Traversal
 from .utils import deepcopy_tree
-from phylo_utils.alignment.alignment import alignment_to_numpy
+from phylo_utils.alignment.alignment import alignment_to_numpy, invariant_sites
 from phylo_utils.utils import setup_logger
 
 import numpy as np
@@ -90,6 +90,8 @@ class TreeModel(object):
         """
         Use the Lewis model of ascertainment bias correction
         """
+        if np.any(invariant_sites(self.alignment)):
+            logger.warn("Using Lewis ascertainment bias correction on an alignment with invariant sites!")
         self.ascbias = True
 
     def initialise(self):

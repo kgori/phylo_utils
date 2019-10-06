@@ -63,4 +63,4 @@ def invariant_sites(alignment):
     :return: numpy boolean array where True indicates an invariant site
     """
     return [np.any(reduce(np.logical_and, alignment[:, i, :], np.ones(alignment.shape[2], )))
-            for i in range(tm.alignment.shape[1])]
+            for i in range(alignment.shape[1])]

@@ -1,5 +1,5 @@
 from __future__ import print_function
-from phylo_utils.utils import seq_to_partials
+from phylo_utils import seq_to_partials
 from phylo_utils.substitution_models.wag import WAG
 from phylo_utils.substitution_models.lg import LG
 from phylo_utils.substitution_models.k80 import K80

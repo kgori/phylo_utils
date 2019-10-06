@@ -1,10 +1,9 @@
 from abc import ABCMeta
 
 import numpy as np
-from scipy import linalg as LA
 
 from phylo_utils.substitution_models.utils import compute_b_matrix, check_frequencies, check_rates, compute_q_matrix, \
-    get_eigen
+    get_eigen, expm
 
 MIN_BRANCH_LENGTH = 1/2**16
 
@@ -163,20 +162,20 @@ class DNANonReversibleModel(Model):
     def p(self, t, rates = None):
         q = self.q()
         if rates is None:
-            return LA.expm(q * t)
+            return expm(q * t)
         else:
-            return np.stack([LA.expm(q * rate * t) for rate in rates], axis=2)
+            return np.stack([expm(q * rate * t) for rate in rates], axis=2)
 
     def dp_dt(self, t, rates = None):
         q = self.q()
         if rates is None:
-            return q.dot(LA.expm(q * t))
+            return q.dot(expm(q * t))
         else:
-            return np.stack([q.dot(LA.expm(q * rate * t)) for rate in rates], axis=2)
+            return np.stack([q.dot(expm(q * rate * t)) for rate in rates], axis=2)
 
     def d2p_dt2(self, t, rates = None):
         q = self.q()
         if rates is None:
-            return q.dot(q).dot(LA.expm(q * t))
+            return q.dot(q).dot(expm(q * t))
         else:
-            return np.stack([q.dot(q).dot(LA.expm(q * rate * t)) for rate in rates], axis=2)
+            return np.stack([q.dot(q).dot(expm(q * rate * t)) for rate in rates], axis=2)
