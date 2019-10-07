@@ -56,7 +56,7 @@ class Model(object):
         if rates is None:
             return self.eigen.exp(t)
         else:
-            return np.stack([self.eigen.exp(t * rate) for rate in rates], axis=2)
+            return np.stack([self.eigen.exp(t * rate) for rate in rates], axis=0)
 
     def dp_dt(self, t, rates=None):
         """
@@ -65,7 +65,7 @@ class Model(object):
         if rates is None:
             return self.eigen.fn_apply(lambda x: x * np.exp(x * t))
         else:
-            return np.stack([self.eigen.fn_apply(lambda x: x * np.exp(x * t * rate)) for rate in rates], axis=2)
+            return np.stack([self.eigen.fn_apply(lambda x: x * np.exp(x * t * rate)) for rate in rates], axis=0)
 
     def d2p_dt2(self, t, rates=None):
         """
@@ -74,7 +74,7 @@ class Model(object):
         if rates is None:
             return self.eigen.fn_apply(lambda x: x * x * np.exp(x * t))
         else:
-            return np.stack([self.eigen.fn_apply(lambda x: x * x * np.exp(x * t * rate)) for rate in rates], axis=2)
+            return np.stack([self.eigen.fn_apply(lambda x: x * x * np.exp(x * t * rate)) for rate in rates], axis=0)
 
     def detailed_balance(self):
         """
@@ -136,6 +136,11 @@ class ProteinModel(Model):
         self._q_mtx = compute_q_matrix(self._rates, self._freqs)
         self.eigen = Eigen(*get_eigen(self._q_mtx, self._freqs))
 
+    def __repr__(self):
+        s = 'Protein model: {}\n'.format(self._name)
+        s += 'Freqs:        {}\n'.format(self._freqs)
+        return s
+
 
 class DNAReversibleModel(Model):
     _name = 'GenericReversibleDNA'
@@ -147,6 +152,12 @@ class DNAReversibleModel(Model):
 
     def q(self):
         return self._q_mtx
+
+    def __repr__(self):
+        s = 'DNA reversible model: {}\n'.format(self._name)
+        s += 'Rel. rates: {}\n'.format(self._rates[np.array([0,0,0,1,1,2]), np.array([1,2,3,2,3,3])])
+        s += 'Freqs:      {}\n'.format(self._freqs)
+        return s
 
 
 class DNANonReversibleModel(Model):
@@ -164,18 +175,25 @@ class DNANonReversibleModel(Model):
         if rates is None:
             return expm(q * t)
         else:
-            return np.stack([expm(q * rate * t) for rate in rates], axis=2)
+            return np.stack([expm(q * rate * t) for rate in rates], axis=0)
 
     def dp_dt(self, t, rates = None):
         q = self.q()
         if rates is None:
             return q.dot(expm(q * t))
         else:
-            return np.stack([q.dot(expm(q * rate * t)) for rate in rates], axis=2)
+            return np.stack([q.dot(expm(q * rate * t)) for rate in rates], axis=0)
 
     def d2p_dt2(self, t, rates = None):
         q = self.q()
         if rates is None:
             return q.dot(q).dot(expm(q * t))
         else:
-            return np.stack([q.dot(q).dot(expm(q * rate * t)) for rate in rates], axis=2)
+            return np.stack([q.dot(q).dot(expm(q * rate * t)) for rate in rates], axis=0)
+
+    def __repr__(self):
+        s = 'DNA reversible model: {}\n'.format(self._name)
+        s += 'Rel. rates: {}\n'.format(self._rates[np.array([0,0,0,1,1,1,2,2,2,3,3,3]),
+                                                   np.array([1,2,3,0,2,3,0,1,3,0,1,2])])
+        s += 'Freqs:      {}\n'.format(self.freqs)
+        return s

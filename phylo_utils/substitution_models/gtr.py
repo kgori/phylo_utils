@@ -18,7 +18,13 @@ class GTR(DNAReversibleModel):
         if rates is None:
             rates = fixed_equal_nucleotide_rates.copy()
         else:
-            rates = np.ascontiguousarray(rates)
+            if isinstance(rates, list) and len(rates) == 5 or len(rates) == 6:
+                rates_m = np.zeros((4, 4))
+                if len(rates) == 5:
+                    rates.append(1.0)
+                rates_m[np.array([0, 0, 0, 1, 1, 2]), np.array([1, 2, 3, 2, 3, 3])] = np.array(rates)
+                rates_m[np.array([1, 2, 3, 2, 3, 3]), np.array([0, 0, 0, 1, 1, 2])] = np.array(rates)
+            rates = np.ascontiguousarray(rates_m)
         if freqs is None:
             freqs = fixed_equal_nucleotide_frequencies.copy()
         if rates.shape == (self.size, self.size):
