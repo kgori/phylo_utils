@@ -4,54 +4,49 @@ os.environ['NUMBA_ENABLE_AVX'] = '1'
 import numba
 import numpy as np
 from math import log
-SCALE_THRESHOLD = np.finfo('float').eps
+SCALE_THRESHOLD = 1.0 / 2.0**2
 
-@numba.guvectorize([('void(double[:,:,:], double[:,:,:],'
-                     ' double[:,:], double[:,:],'
-                     ' double[:], double[:],'
-                     ' double[:], double[:,:])')],
-                   ('(n,n,m),(n,n,m),'
-                    '(n,m),(n,m),'
-                    '(m),(m),'
-                    '(m)->(n,m)'), nopython=True)
-def clv(probs_a, probs_b,
-        clv_a, clv_b,
-        scale_a, scale_b,
-        scale, out):
+# numba vectorized version, should broadcast automatically over N datapoints
+@numba.guvectorize([
+    ('void(double[:,:,::1], double[:,:,::1], double[:,::1], double[:,::1], double[::1], double[::1], double[::1], double[:,::1])')],
+    '(ncat,nstate,nstate), (ncat,nstate,nstate), (ncat,nstate), (ncat,nstate), (ncat), (ncat), (ncat) -> (ncat,nstate)',
+    nopython=True, forceobj=False, target='parallel') 
+def clv(p1, p2, clv1, clv2, scaler_a, scaler_b, cml_scaler, out):
     """
-    Compute the conditional likelihood vector at the parent of nodes 'a' and 'b'.
+        Compute the conditional likelihood vector at the parent of nodes 'a' and 'b'.
 
-    The information at 'a' and 'b' is introduced via parameters probs_a and probs_b,
-    which are the Markov transition probabilities from 'a' and 'b' to the parent
-    (given the branch lengths), and clv_a and clv_b, which are the conditional likelihood
-    vectors at 'a' and 'b'.
+        The information at 'a' and 'b' is introduced via parameters probs_a and probs_b,
+        which are the Markov transition probabilities from 'a' and 'b' to the parent
+        (given the branch lengths), and clv_a and clv_b, which are the conditional likelihood
+        vectors at 'a' and 'b'.
 
-    The computation automatically vectorises over broadcast dimension (i.e. multiple sites inputs)
-    'out' argument will be automatically allocated if omitted, or can be provided for reuse
+        The computation automatically vectorises over broadcast dimension (i.e. multiple sites inputs)
+        'out' argument will be automatically allocated if omitted, or can be provided for reuse
 
-    :param probs_a: matrix of transition probabilities for branch from A to parent node, for each rate class
-    :param probs_b: matrix of transition probabilities for branch from B to parent node, for each rate class
-    :param clv_a: vector of sitewise conditional likelihoods at descendant node A, for each rate class
-    :param clv_b: vector of sitewise conditional likelihoods at descendant node B, for each rate class
-    :param scale_a: sitewise log scale values at A
-    :param scale_b: sitewise log scale values at B
-    :param scale: sitewise log scale values computed for current (parent) node
-    :param out:
-    """
-    for k in range(probs_a.shape[2]):
-        tmp = np.dot(probs_a[:, :, k], clv_a[:, k]) * np.dot(probs_b[:, :, k], clv_b[:, k])
-        m = np.max(tmp)
+        :param p1: matrix of transition probabilities for branch from A to parent node, for each rate class. Must be c-contiguous and shaped as (ncat, nstates, nstates).
+        :param p2: matrix of transition probabilities for branch from B to parent node, for each rate class. Must be c-contiguous and shaped as (ncat, nstates, nstates).
+        :param clv1: vector of sitewise conditional likelihoods at descendant node A, for each rate class. Must be c-contiguous and shaped as ([nsites], ncat, nstates).
+        :param clv2: vector of sitewise conditional likelihoods at descendant node B, for each rate class. Must be c-contiguous and shaped as ([nsites], ncat, nstates).
+        :param scaler_a: sitewise log scale values at A. Must be c-contiguous and shaped as (ncat).
+        :param scaler_b: sitewise log scale values at B. Must be c-contiguous and shaped as (ncat).
+        :param cml_scaler: sitewise log scale values computed for current (parent) node. Must be c-contiguous and shaped as (ncat).
+        :param out: destination array for computed values. Must be c-contiguous and same shape as clv1 and clv2.
+        """
+    for cat in range(p1.shape[0]):
+        out[cat] = np.dot(p1[cat], clv1[cat]) * np.dot(p2[cat], clv2[cat])
+        m = np.max(out[cat])
+
         if m < SCALE_THRESHOLD and m > 0:
-            scale[k] = np.log(m) + scale_a[k] + scale_b[k]
-            for j in range(tmp.size):
-                out[j, k] = tmp[j] / m
+            cml_scaler[cat] = scaler_a[cat] + scaler_b[cat] + np.log(m)
+            out[cat] /= m
+
         else:
-            scale[k] = scale_a[k] + scale_b[k]
-            for j in range(tmp.size):
-                out[j, k] = tmp[j]
+            cml_scaler[cat] = scaler_a[cat] + scaler_b[cat]
+
+    return
 
 
-@numba.guvectorize(['void(double[:,:,:], double[:], double[:], double[:], double[:], double[:], double[:])'],
+@numba.guvectorize(['void(double[:,:,::1], double[::1], double[::1], double[::1], double[::1], double[::1], double[::1])'],
                    '(m,n,n),(n),(n),(n),(),()->(m)', nopython=True)
 def lnl_branch_derivs(probs, pi, partials_a, partials_b, scale_a, scale_b, out):
     f = np.sum(np.dot(probs[0], partials_a) * partials_b * pi)
@@ -62,7 +57,7 @@ def lnl_branch_derivs(probs, pi, partials_a, partials_b, scale_a, scale_b, out):
     out[2] = ((f2p * f) - (fp * fp)) / (f * f)
 
 
-@numba.guvectorize(['void(double[:,:], double[:], double[:], double[:], double[:], double[:], double[:])'],
+@numba.guvectorize(['void(double[:,::1], double[::1], double[::1], double[::1], double[::1], double[::1], double[::1])'],
                    '(n,n),(n),(n),(n),(),()->()', nopython=True)
 def lnl_branch(probs, pi, partials_a, partials_b, scale_a, scale_b, out):
     """
@@ -85,31 +80,8 @@ def lnl_branch(probs, pi, partials_a, partials_b, scale_a, scale_b, out):
 
 
 @numba.guvectorize(['void(double[:], double[:,:], double[:], double[:])'],
-                   '(n),(n,k),(k)->(k)', nopython=True)
+                   '(nstate),(ncat,nstate),(ncat)->(ncat)', nopython=True)
 def lnl_node(pi, partials, scale, out):
-    for k in range(partials.shape[1]):
-        f = np.sum(partials[:, k] * pi)
-        out[k] = (log(f) + scale[k] if f > 0 else -np.inf)
-
-
-def make_multithread(inner_func, numthreads):
-    """
-    Run the given function inside *numthreads* threads, splitting its
-    arguments into equal-sized chunks.
-    """
-    def func_mt(*args):
-        length = len(args[0])
-
-        chunklen = (length + numthreads - 1) // numthreads
-        # Create argument tuples for each input chunk
-        chunks = [[arg[i * chunklen:(i + 1) * chunklen] for arg in args]
-                  for i in range(numthreads)]
-        # Spawn one thread per chunk
-        threads = [threading.Thread(target=inner_func, args=chunk)
-                   for chunk in chunks]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-
-    return func_mt
+    for cat in range(partials.shape[0]):
+        f = np.sum(partials[cat] * pi)
+        out[cat] = (log(f) + scale[cat] if f > 0 else -np.inf)
