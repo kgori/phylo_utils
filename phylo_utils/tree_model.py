@@ -79,12 +79,15 @@ class TreeModel(object):
         """
         self.substitution_model = model
 
+
     def set_rate_model(self, rate_model):
         self.rate_model = rate_model
+
 
     def set_tree(self, dpytree):
         self.tree = deepcopy_tree(dpytree)
         self.traversal = Traversal(self.tree)
+
 
     def set_ascertainment_bias_correction(self):
         """
@@ -94,47 +97,63 @@ class TreeModel(object):
             logger.warn("Using Lewis ascertainment bias correction on an alignment with invariant sites!")
         self.ascbias = True
 
+
     def initialise(self):
         """
         Allocate numpy arrays to store all partial likelihoods
         """
         # TODO: assertions that all data are inplace, names match between
         #       alignment and tree, etc...
-        n_leaves, n_sites, n_chars = self.alignment.shape
+        n_leaves, n_sites, n_states = self.alignment.shape
         n_cat = self.rate_model.ncat
+        n_nodes = (2 * n_leaves - 2)
 
         # if ascertainment bias correction, add space to include
         # an invariant site for every character state in the alphabet
         if self.ascbias:
-            n_sites += n_chars
+            n_sites += n_states
 
-        self.partials = np.zeros((n_sites, (2 * n_leaves - 2), n_chars, n_cat),
-                                 dtype=np.double)
-        self.scale = np.zeros((n_sites, (2 * n_leaves - 2), n_cat),
-                              dtype=np.double)
-        self.root_partials = np.zeros((n_sites, n_chars, n_cat),
+        # Allocate space for all the conditional likelihood vectors in a single numpy array
+        self.partials = np.ascontiguousarray(
+            np.zeros((n_nodes, n_sites, n_cat, n_states),
+                     dtype=np.double))
+
+        # Add a scaler at every node, for every site and category
+        self.scale = np.ascontiguousarray(
+            np.zeros((n_nodes, n_sites, n_cat),
+                     dtype=np.double))
+
+        # Add another clv allocation for the root
+        self.root_partials = np.zeros((n_sites, n_cat, n_states),
                                       dtype=np.double)
+
+        # Add another scaler at the root
         self.root_scale = np.zeros((n_sites, n_cat),
                                    dtype=np.double)
 
+        ###################################################
         # transfer alignment tip partials to partials array
+        ###################################################
+
+        # number of sites in the (compressed) alignment, before adding any invariant sites in case we're doing
+        # ascertainment bias correction
         n_orig_sites = self.alignment.shape[1]
+
         for name in self.traversal.names:
-            tree_index = self.traversal.names[name]
-            alignment_index = self.names[name]
-            for cat in range(n_cat):
-                self.partials[:n_orig_sites, tree_index, :, cat] = self.alignment[alignment_index]
-                self.scale[:n_orig_sites, tree_index, cat] = 0
+            alignment_index = self.names[name]      # Source: read data from this alignment index
+            node_index = self.traversal.names[name] # Destination: transfer data to the node at this index
+
+            for cat in range(n_cat): # Copy the leaf data n_cat times
+                self.partials[node_index, :n_orig_sites, cat, :] = self.alignment[alignment_index]
+                self.scale[node_index, :n_orig_sites, cat] = 0
 
         # Fill in the invariant sites for ascertainment bias correction
         if self.ascbias:
             first_dummy_site = self.inverse_index.max() + 1
-            for state in range(n_chars):
+            for state in range(n_states):
                 for leaf in self.traversal.names.values():
                     site = first_dummy_site + state
-                    self.partials[site,
-                                  leaf,
-                                  state] = 1.0
+                    self.partials[leaf, site, :, state] = 1.0
 
         self.compute_partials()
 
@@ -149,12 +168,12 @@ class TreeModel(object):
             prob1 = self.substitution_model.p(brlen1, self.rate_model.rates)
             prob2 = self.substitution_model.p(brlen2, self.rate_model.rates)
 
-            clv1 = self.partials[:, CH1, :, :]
-            clv2 = self.partials[:, CH2, :, :]
-            scale1 = self.scale[:, CH1, :]
-            scale2 = self.scale[:, CH2, :]
-            scalep = self.scale[:, PAR, :]
-            self.partials[:, PAR, :, :] = clv(prob1, prob2, clv1, clv2, scale1, scale2, scalep)
+            clv1 = self.partials[CH1]
+            clv2 = self.partials[CH2]
+            scale1 = self.scale[CH1]
+            scale2 = self.scale[CH2]
+            scalep = self.scale[PAR]
+            self.partials[PAR] = clv(prob1, prob2, clv1, clv2, scale1, scale2, scalep)
 
     def compute_partials_at_edge(self, node_a, node_b):
         """
@@ -169,10 +188,10 @@ class TreeModel(object):
 
         prob1 = self.substitution_model.p(0, self.rate_model.rates)
         prob2 = self.substitution_model.p(length, self.rate_model.rates)
-        clv1 = self.partials[:, node_a, :, :]
-        clv2 = self.partials[:, node_b, :, :]
-        scale1 = self.scale[:, node_a, :]
-        scale2 = self.scale[:, node_b, :]
+        clv1 = self.partials[node_a, :, :]
+        clv2 = self.partials[node_b, :, :]
+        scale1 = self.scale[node_a, :]
+        scale2 = self.scale[node_b, :]
         scalep = self.root_scale[:, :]
         clv(prob1, prob2, clv1, clv2, scale1, scale2, scalep,
             self.root_partials[:, :, :])
