@@ -4,7 +4,7 @@ os.environ['NUMBA_ENABLE_AVX'] = '1'
 import numba
 import numpy as np
 from math import log
-SCALE_THRESHOLD = 1.0 / 2.0**2
+SCALE_THRESHOLD = 1.0 / 2.0**128
 
 # numba vectorized version, should broadcast automatically over N datapoints
 @numba.guvectorize([
