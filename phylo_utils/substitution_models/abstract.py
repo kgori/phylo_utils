@@ -102,7 +102,10 @@ class Eigen(object):
         Shorthand for Eigen.fn_apply(lambda x: np.exp(x * t))
         :return:
         """
-        return (self.evecs * np.exp(self.evals * t)).dot(self.ivecs)
+        if t < 1e-8:
+            return (self.evecs * np.expm1(self.evals * t)).dot(self.ivecs) + np.eye(self.evals.shape[0])
+        else:
+            return (self.evecs * np.exp(self.evals * t)).dot(self.ivecs)
 
     def reconstitute(self):
         """
