@@ -1,8 +1,7 @@
 from phylo_utils.likelihood.numba_likelihood_engine import clv, lnl_node
 from .traversal import Traversal
-from .utils import deepcopy_tree
 from phylo_utils.alignment.alignment import alignment_to_numpy, invariant_sites
-from phylo_utils.utils import setup_logger
+from phylo_utils.utils import setup_logger, deepcopy_tree
 
 import numpy as np
 from scipy.special import logsumexp
