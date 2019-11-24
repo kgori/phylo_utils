@@ -1,5 +1,8 @@
 test
-extensions/likcalc.c
+src/discrete_gamma.c
+src/optimisation.c
+src/simulation.c
+phylo_utils/likelihood/cython_likelihood_engine.c
 
 # Mac cruft
 *.DS_Store*
