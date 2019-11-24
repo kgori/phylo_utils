@@ -6,7 +6,7 @@ from phylo_utils.substitution_models.utils import compute_b_matrix, check_freque
     get_eigen, expm
 
 MIN_BRANCH_LENGTH = 1/2**16
-
+SMALL_BRANCH_LENGTH = 1e-6 # probabilities for branches smaller than this will be computed using expm1 + I
 
 class Model(object):
     __metaclass__ = ABCMeta
@@ -62,19 +62,14 @@ class Model(object):
         """
         First derivative of P w.r.t t
         """
-        if rates is None:
-            return self.eigen.fn_apply(lambda x: x * np.exp(x * t))
-        else:
-            return np.stack([self.eigen.fn_apply(lambda x: x * np.exp(x * t * rate)) for rate in rates], axis=0)
+        return self.q().dot(self.p(t, rates))
+
 
     def d2p_dt2(self, t, rates=None):
         """
         Second derivative of P w.r.t t
         """
-        if rates is None:
-            return self.eigen.fn_apply(lambda x: x * x * np.exp(x * t))
-        else:
-            return np.stack([self.eigen.fn_apply(lambda x: x * x * np.exp(x * t * rate)) for rate in rates], axis=0)
+        return self.q().dot(self.dp_dt(t, rates))
 
     def detailed_balance(self):
         """
@@ -102,7 +97,7 @@ class Eigen(object):
         Shorthand for Eigen.fn_apply(lambda x: np.exp(x * t))
         :return:
         """
-        if t < 1e-8:
+        if t < SMALL_BRANCH_LENGTH:
             return (self.evecs * np.expm1(self.evals * t)).dot(self.ivecs) + np.eye(self.evals.shape[0])
         else:
             return (self.evecs * np.exp(self.evals * t)).dot(self.ivecs)
