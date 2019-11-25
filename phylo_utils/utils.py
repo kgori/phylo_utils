@@ -47,6 +47,4 @@ def discretize(alpha, ncat, dist=ss.gamma):
 
 def deepcopy_tree(tree):
     clone = copy.deepcopy(tree)
-    clone.deroot()
-    clone.resolve_polytomies()
     return clone
