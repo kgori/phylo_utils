@@ -105,7 +105,7 @@ class TreeModel(object):
         #       alignment and tree, etc...
         n_leaves, n_sites, n_states = self.alignment.shape
         n_cat = self.rate_model.ncat
-        n_nodes = (2 * n_leaves - 2)
+        n_nodes = 2 * n_leaves - (1 if self.tree.is_rooted else 2)
 
         # if ascertainment bias correction, add space to include
         # an invariant site for every character state in the alphabet
@@ -160,10 +160,12 @@ class TreeModel(object):
         """
         Do 1 postorder traversal and compute partials (CLVs) at internal nodes
         """
+        print (self.traversal.brlens)
         for instruction in self.traversal.postorder_traversal:
-            PAR, CH1, CH2 = instruction
-            brlen1 = self.traversal.brlens[(PAR, CH1)]
-            brlen2 = self.traversal.brlens[(PAR, CH2)]
+            PAR, CH1, EDGE1, CH2, EDGE2 = instruction
+            print(instruction)
+            brlen1 = self.traversal.brlens[EDGE1]
+            brlen2 = self.traversal.brlens[EDGE2]
             prob1 = self.substitution_model.p(brlen1, self.rate_model.rates)
             prob2 = self.substitution_model.p(brlen2, self.rate_model.rates)
 
