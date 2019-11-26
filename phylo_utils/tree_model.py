@@ -160,10 +160,8 @@ class TreeModel(object):
         """
         Do 1 postorder traversal and compute partials (CLVs) at internal nodes
         """
-        print (self.traversal.brlens)
         for instruction in self.traversal.postorder_traversal:
             PAR, CH1, EDGE1, CH2, EDGE2 = instruction
-            print(instruction)
             brlen1 = self.traversal.brlens[EDGE1]
             brlen2 = self.traversal.brlens[EDGE2]
             prob1 = self.substitution_model.p(brlen1, self.rate_model.rates)
