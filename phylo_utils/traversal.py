@@ -90,17 +90,29 @@ def generate_optimising_traversal(tree):
             if tree.is_rooted:
                 assert len(siblings) == 1
                 grandparent_index = -1
+                grandparent_edge = -1
                 sibling = siblings[0]
             else:
                 assert len(siblings) == 2
                 sibling = siblings[0]
                 grandparent_index = siblings[1].index
+                grandparent_edge = siblings[1].edge_index
         else:
             assert len(siblings) == 1
             grandparent_index = parent.parent_node.index
+            grandparent_edge = parent.edge_index
             sibling = siblings[0]
 
-        descriptor.append((parent.index, sibling.index, grandparent_index, parent.index, node.index, node.edge_index))
+        # Descriptor format: 8 indices:
+        #   1=Node at which to update partials, through the following:
+        #   2=Child 1's partials
+        #   3=Child 1's edge
+        #   4=Child 2's partials
+        #   5=Child 2's edge
+        #   6 and 7=Nodes between which the branch to be optimised exists
+        #   8=Optimised branch's edge index
+        descriptor.append((parent.index, sibling.index, sibling.edge_index, grandparent_index, grandparent_edge,
+                           parent.index, node.index, node.edge_index))
 
         # Recursion
         if node.is_internal():
@@ -108,7 +120,8 @@ def generate_optimising_traversal(tree):
             _traverse(child1, descriptor)
             _traverse(child2, descriptor)
             # Reorient partials back towards root
-            descriptor.append((node.index, child1.index, child2.index, -1, -1, -1))
+            descriptor.append((node.index, child1.index, child1.edge_index, child2.index, child2.edge_index,
+                               -1, -1, -1))
         return
 
     if tree.is_rooted:
@@ -117,7 +130,8 @@ def generate_optimising_traversal(tree):
 
     else:
         left, middle, right = tree.seed_node.child_nodes()
-        descriptor.append((-1, -1, -1, tree.seed_node.index, left.index, left.edge_index))
+        descriptor.append((-1, -1, -1, -1, -1,
+                           tree.seed_node.index, left.index, left.edge_index))
         for child in left.child_nodes():
             _traverse(child, descriptor)
         _traverse(middle, descriptor)
