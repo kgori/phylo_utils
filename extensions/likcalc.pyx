@@ -298,7 +298,7 @@ def sitewise_lik_derivs(probs, dprobs, d2probs, freqs, partials_a, partials_b):
     r = np.empty((sites, 3))
     check = _sitewise_lik_derivs(probs, dprobs, d2probs, freqs, partials_a, partials_b, r)
     if check != 0:
-        print 'Scaling error encountered! Used hack!'
+        print('Scaling error encountered! Used hack!')
     return r
 
 def sitewise_lik(probs, freqs, partials_a, partials_b):
