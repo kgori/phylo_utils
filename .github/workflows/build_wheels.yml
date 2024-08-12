@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
+    paths:
+      - '.github/workflows/build_wheels.yml'
 
 jobs:
   build_wheels:
@@ -20,8 +22,8 @@ jobs:
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.20.0
         env:
-          CIBW_BUILD: "cp3?-*"
-          CIBW_SKIP: "pp* *-manylinux_i686"
+          CIBW_BUILD: "cp3*-*"
+          CIBW_SKIP: "pp* *-*_i686"
         # env:
         #   CIBW_SOME_OPTION: value
         #    ...
@@ -55,9 +57,7 @@ jobs:
     environment: pypi
     permissions:
       id-token: write
-    if: github.event_name == 'release' && github.event.action == 'published'
-    # or, alternatively, upload to PyPI on every tag starting with 'v' (remove on: release above to use this)
-    # if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/download-artifact@v4
         with:
