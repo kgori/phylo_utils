@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
-    paths:
-      - '.github/workflows/build_wheels.yml'
 
 jobs:
   build_wheels:
@@ -24,13 +22,6 @@ jobs:
         env:
           CIBW_BUILD: "cp3*-*"
           CIBW_SKIP: "pp* *-*_i686"
-        # env:
-        #   CIBW_SOME_OPTION: value
-        #    ...
-        # with:
-        #   package-dir: .
-        #   output-dir: wheelhouse
-        #   config-file: "{package}/pyproject.toml"
 
       - uses: actions/upload-artifact@v4
         with:
