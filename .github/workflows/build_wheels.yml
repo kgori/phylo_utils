@@ -2,9 +2,8 @@ name: Build
 
 on:
   push:
-    branches:
-      - treecl_version
-      - master
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
 
 jobs:
   build_wheels:
@@ -20,6 +19,9 @@ jobs:
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.20.0
+        env:
+          CIBW_BUILD: "cp3?-*"
+          CIBW_SKIP: "pp* *-manylinux_i686"
         # env:
         #   CIBW_SOME_OPTION: value
         #    ...
